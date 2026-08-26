@@ -1,6 +1,6 @@
 # Deployment & Helm Tooling Baseline (`deploy/`)
 
-This document defines the deployment tooling baseline, Helm version requirements, installation procedures, namespace conventions, values-file layout, version pinning policy, and resource-budget policies for `open-iceberg-stack`.
+This document defines the deployment tooling baseline, Helm version requirements, installation procedures, namespace conventions, values-file layout, version pinning policy, resource-budget policies, and secrets handling for `open-iceberg-stack`.
 
 ## Helm Version Requirement
 
@@ -79,6 +79,29 @@ Examples:
 **Convention Rules:**
 1. All custom configurations, resource overrides, replica counts, and container arguments **must** be declared within the respective `deploy/<component>/values.yaml` file.
 2. Ad-hoc `--set` flags in deployment scripts are strictly prohibited except for transient dynamic secrets or context parameters.
+
+## Secrets & Credentials Handling Policy
+
+To keep credentials secure during local development and prevent credential leaks in version control:
+
+### 1. Secret Handling Mechanism
+- **Secret Values Overlay:** Secret configurations are managed via gitignored secret overlay files (e.g., `deploy/<component>/values-secret.yaml` or `*.secret.yaml`).
+- **Helm Invocation:** Helm installations pass the secret overlay as a second values file flag:
+  `helm install <release> <chart> -f deploy/<component>/values.yaml -f deploy/<component>/values-secret.yaml`
+- **Environment Template:** Environment variables can also be declared in a gitignored `.env` file copied from [`.env.example`](../.env.example).
+
+### 2. Version Control Safety & Guardrails
+- **Gitignore Protection:** All secret file patterns (`.env`, `.env.local`, `*-secret.yaml`, `*.secret.yaml`, `*.secret.*`, `values-secret.yaml`) are strictly covered under [`.gitignore`](../.gitignore).
+- **Placeholder Templates:** The repository commits **only** non-sensitive placeholder templates (e.g., `.env.example`, `deploy/storage/values-secret.yaml.example`).
+- **No `--set` Leakage:** Secrets **must never** be hardcoded into committed shell script `--set` flags, as shell command lines leak sensitive data into shell history and CI job logs.
+- **No Log Echoing:** Installation scripts and CI pipelines **must never** print or echo resolved secret values to stdout or log outputs.
+
+### Verification of Ignore Status
+Before committing new files, verify that secret files are ignored by Git:
+
+```bash
+git check-ignore .env deploy/storage/values-secret.yaml test.secret.yaml
+```
 
 ## Chart-Version Pinning Policy
 
@@ -165,7 +188,7 @@ Per-component Helm values and configuration manifests are organized under `deplo
 - `deploy/versions.env`: Authoritative chart and appVersion registry.
 - `deploy/namespaces.yaml`: Consolidated per-component Namespace manifest.
 - `deploy/cluster/`: Local Kubernetes cluster definition & provider config.
-- `deploy/storage/`: Object storage substrate (RustFS) Helm values (`deploy/storage/values.yaml`).
+- `deploy/storage/`: Object storage substrate (RustFS) Helm values (`deploy/storage/values.yaml`) and secret overlay template (`deploy/storage/values-secret.yaml.example`).
 - `deploy/catalog/`: Iceberg REST Catalog values & configuration.
 - `deploy/processing/`: Engine processing component values (Flink / Spark).
 - `deploy/ingestion/`: Streaming ingestion components (Kafka).
