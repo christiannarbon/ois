@@ -108,6 +108,11 @@ __pypackages__/
 __pycache__/
 *.pyc
 .env
+.env.local
+*-secret.yaml
+*.secret.yaml
+*.secret.*
+values-secret.yaml
 .DS_Store
 .claude/
 
