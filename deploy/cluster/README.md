@@ -44,7 +44,8 @@ Two resource sizing profiles are defined:
 ## Profile Isolation & Security
 
 - All cluster operations target the dedicated profile `open-iceberg` (`-p open-iceberg`).
-- Operations will **never** target or modify the default Minikube profile or host `docker-desktop` context, ensuring clean teardown without risk to unrelated local clusters.
+- Operations will **never** target or modify the default Minikube profile or any other host Kubernetes context (e.g. `orbstack`, `docker-desktop`), ensuring clean teardown without risk to unrelated local clusters.
+- The `docker` driver runs against whichever Docker engine is active (`docker context ls`); the current reference host uses OrbStack, with OrbStack's built-in Kubernetes disabled.
 
 ## Invocation Examples (Compatible with bash and zsh)
 
