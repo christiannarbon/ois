@@ -42,7 +42,7 @@ From the host, port-forward both ports:
 kubectl --context open-iceberg -n storage port-forward svc/rustfs 9000:9000 9001:9001
 ```
 
-The S3 API is then at `http://localhost:9000` and the console at `http://localhost:9001`.
+The S3 API is then at `http://localhost:9000` and the console at `http://localhost:9001/rustfs/console/` (the root path returns 403).
 
 ## Checking storage
 

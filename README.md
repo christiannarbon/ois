@@ -20,6 +20,10 @@ You choose which parts to run and what goes through them: topics, streams, table
 
 By default everything runs on Minikube and is kept small enough for a laptop. The same config is meant to be deployable to a real cluster later on.
 
+## Getting started
+
+See [docs/user/foundation.md](docs/user/foundation.md) to bring up the storage layer.
+
 ## License
 
 MIT
