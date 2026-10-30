@@ -25,7 +25,7 @@ flowchart TB
     end
 
     subgraph rustfs["RustFS (S3)"]
-        buckets[(lakehouse-raw / silver /<br/>gold / platinum)]
+        buckets[(warehouse bucket<br/>ns: raw · staging · marts)]
     end
 
     flink -->|1. client_id/secret| oauth
