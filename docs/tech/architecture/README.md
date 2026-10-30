@@ -44,8 +44,8 @@ per-engine wiring) see the low-level designs in [`../lld/`](../lld/).
   per checkpoint (~1/min); a Dagster sensor watches those commits and
   auto-materializes dbt models. No human presses "run."
 - **Medallion tiers** — data is progressively refined `raw → silver → gold`
-  (with a `platinum` tier reserved), each tier a set of Iceberg tables in its own
-  RustFS bucket.
+  as catalog namespaces `raw`, `staging`, `marts`. All Iceberg tables live in the
+  `warehouse` bucket; tiers are catalog namespaces.
 - **Maintains itself** — scheduled Dagster jobs run Trino maintenance SQL
   (`OPTIMIZE`, `expire_snapshots`, `remove_orphan_files`) to fight the
   small-file problem inherent in streaming lakehouses.
