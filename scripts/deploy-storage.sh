@@ -46,6 +46,8 @@ helm upgrade --install rustfs rustfs \
   -f "${REPO_ROOT}/components/storage/values.yaml" \
   --wait --timeout 5m
 
+kubectl --context "$CTX" apply -f "${REPO_ROOT}/components/storage/service.yaml" >/dev/null
+
 kubectl --context "$CTX" -n "$NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/name=rustfs,app.kubernetes.io/instance=rustfs --timeout=180s
 echo "RustFS is ready in namespace $NS"
