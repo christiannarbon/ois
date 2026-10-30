@@ -15,7 +15,7 @@ access.
 
 ```mermaid
 flowchart TB
-    subgraph trino["Trino (ns: compute)"]
+    subgraph trino["Trino (ns: query)"]
         coord[Coordinator :8080<br/>parse · plan · schedule]
         w1[Worker]
         w2[Worker]
@@ -25,7 +25,7 @@ flowchart TB
         coord -.reads.- cat
     end
     polaris[[Polaris REST :8181]]
-    rustfs[(RustFS lakehouse-*)]
+    rustfs[(RustFS warehouse)]
     cli[Trino CLI / JDBC / SQLAlchemy]
     cli -->|SQL| coord
     coord -->|OAuth2 + manifests| polaris
@@ -40,7 +40,7 @@ The catalog connector file is the heart of this layer:
 | :--- | :--- | :--- |
 | `connector.name` | `iceberg` | — |
 | `iceberg.catalog.type` | `rest` | REST catalog, not Hive/Glue |
-| `iceberg.rest-catalog.uri` | `http://polaris.<ns>.svc.cluster.local:8181/api/catalog` | per the [catalog contract](03-governance-catalog.md) |
+| `iceberg.rest-catalog.uri` | `http://polaris.catalog.svc.cluster.local:8181/api/catalog` | per the [catalog contract](03-governance-catalog.md) |
 | `iceberg.rest-catalog.security` | `OAUTH2` | client-credentials |
 | `iceberg.rest-catalog.oauth2.*` | client_id / client_secret / token endpoint | from Secret |
 | `iceberg.rest-catalog.vended-credentials-enabled` | `true` | consume Polaris-vended S3 creds |
@@ -55,9 +55,9 @@ The catalog connector file is the heart of this layer:
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| Deploy | Trino Helm chart, `deploy/query/` | pinned version |
+| Deploy | Trino Helm chart, `components/trino/` | pinned version |
 | Topology | 1 coordinator + N workers | scale workers for parallelism |
-| Endpoint | `trino.<ns>.svc.cluster.local:8080` | in-cluster DNS |
+| Endpoint | `trino.query.svc.cluster.local:8080` | in-cluster DNS |
 | Catalog mount | `iceberg.properties` as config/ConfigMap | mounted into coordinator + workers |
 | Client access | Trino CLI (port-forward), JDBC, SQLAlchemy-Trino | auth posture / `--user` documented |
 
@@ -98,5 +98,5 @@ schema, partition spec); the [foundation](01-foundation-storage.md) baseline.
   engine, session defaults (catalog/schema).
 - How Trino is deployed, versioned, and scaled (coordinator + worker count).
 
-Target folders: `deploy/query/` (Helm values + `iceberg.properties`),
+Target folders: `components/trino/` (Helm values + `iceberg.properties`),
 `scripts/` (validation queries).
