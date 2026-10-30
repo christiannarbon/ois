@@ -24,7 +24,7 @@ flowchart TB
         rest --> realm --> principals --> catalog --> vend
         catalog --- meta
     end
-    rustfs[(RustFS<br/>lakehouse-* buckets)]
+    rustfs[(RustFS<br/>warehouse bucket)]
     vend -.scoped creds.-> rustfs
     catalog -.base storage location.-> rustfs
 ```
@@ -33,8 +33,8 @@ flowchart TB
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| Deploy | `deploy/catalog/`, pinned image | persistence backend (Postgres/PVC), not in-memory |
-| REST endpoint | `polaris.<ns>.svc.cluster.local:8181/api/catalog` | in-cluster URI for engines |
+| Deploy | `components/catalog/`, pinned image | persistence backend (Postgres/PVC), not in-memory |
+| REST endpoint | `polaris.catalog.svc.cluster.local:8181/api/catalog` | in-cluster URI for engines |
 | Token endpoint | OAuth2 **client-credentials** grant | `/oauth/tokens` (realm-scoped) |
 | Realm | bootstrapped once, root principal | root only mints engine principals |
 | Catalog | name `iceberg`, base storage → RustFS bucket prefix | path-style S3 |
@@ -82,17 +82,17 @@ flowchart LR
 ## Inputs consumed / outputs produced
 
 **Consumes (from the [foundation](01-foundation-storage.md)):** cluster,
-StorageClass, Helm tooling, RustFS + `lakehouse-*` buckets. No dependency on the
+StorageClass, Helm tooling, RustFS + `warehouse`/`flink` buckets. No dependency on the
 ingestion layer.
 
 **Produces — the catalog contract (to stream processing, compute, orchestration
 and maintenance):**
 
-- Iceberg REST catalog URI (`http://polaris.<ns>.svc.cluster.local:8181/api/catalog`).
+- Iceberg REST catalog URI (`http://polaris.catalog.svc.cluster.local:8181/api/catalog`).
 - Realm name + OAuth2 token endpoint + client-credentials flow.
 - Per-engine `client_id`/`client_secret` (vended via Secret).
 - Catalog name (`iceberg`), its RustFS base storage location.
 - **Credential-vending mode** (STS vs static) — how engines get scoped S3 creds.
 
-Target folders: `deploy/catalog/` (Helm values / manifests + metastore),
+Target folders: `components/catalog/` (Helm values / manifests + metastore),
 `scripts/` (idempotent bootstrap/RBAC).
