@@ -53,11 +53,3 @@ metadata:
   labels:
     app.kubernetes.io/part-of: open-iceberg-stack
     app.kubernetes.io/component: orchestration
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: maintenance
-  labels:
-    app.kubernetes.io/part-of: open-iceberg-stack
-    app.kubernetes.io/component: maintenance
