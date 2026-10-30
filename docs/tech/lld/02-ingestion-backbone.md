@@ -40,11 +40,11 @@ flowchart LR
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| Deploy | Kafka Helm chart, **KRaft** mode | pinned version, `deploy/ingestion/` |
-| Bootstrap | `kafka.<ns>.svc.cluster.local:9092` | in-cluster DNS handed to Flink |
+| Deploy | Kafka Helm chart, **KRaft** mode | pinned version, `components/kafka/` |
+| Bootstrap | `ois-kafka-bootstrap.ingestion.svc.cluster.local:9092` | in-cluster DNS handed to Flink |
 | Topic | `raw-clickstream`, partitions + replication | replication=1 acceptable locally |
 | Persistence | PVC for log dirs | events survive broker restart |
-| Producer image | containerized Python, source in `apps/clickstream-producer/` | built + pushed/loaded into cluster |
+| Producer image | containerized Python, source in `samples/clickstream/producer/` | built + pushed/loaded into cluster |
 | Producer runtime | K8s Deployment, continuous replay | restart/backoff on completion to keep stream live |
 | Event schema | JSON: `event_time`, `event_type`, `product_id`, `category`, `user_id`, `user_session`, price… | the **producer/consumer contract** |
 
@@ -91,9 +91,9 @@ StorageClass, Helm tooling.
 **Produces — the ingestion contract (to [stream processing](04-stream-processing.md)):**
 
 - Live **`raw-clickstream`** topic with a continuous event flow.
-- In-cluster **bootstrap DNS** `kafka.<ns>.svc.cluster.local:9092`.
+- In-cluster **bootstrap DNS** `ois-kafka-bootstrap.ingestion.svc.cluster.local:9092`.
 - The **JSON event schema** (producer/consumer contract).
 
-Target folders: `deploy/ingestion/` (Kafka Helm values + topic creation, producer
-Deployment), `apps/clickstream-producer/` (producer source + Dockerfile),
+Target folders: `components/kafka/` (Kafka values + topic creation, producer
+Deployment), `samples/clickstream/producer/` (producer source + Dockerfile),
 `scripts/` (dataset staging).
