@@ -6,7 +6,7 @@ This document defines the deployment tooling baseline, Helm version requirements
 
 All chart installations across all epics require **Helm ≥ 3.12**.
 
-- **Version Floor:** Helm 3.12 (or higher) is mandatory for stable OCI (Open Container Initiative) chart registry support, required for charts such as Bitnami OCI releases.
+- **Version Floor:** Helm 3.12 (or higher) is mandatory for stable OCI (Open Container Initiative) chart registry support, required for charts published as `oci://` artifacts.
 - **Incompatible Versions:** Helm 2 and Tiller are strictly forbidden due to security End-of-Life (EOL) and incompatibility with the stack workflow.
 - **Policy:** Do not pin an exact patch version; any build meeting or exceeding `v3.12.0` is supported.
 
@@ -111,35 +111,40 @@ To guarantee deterministic, reproducible deployments across developer environmen
 2. **Single Authoritative Registry:** All pinned chart versions and bundled container `appVersion` targets are recorded in a single authoritative file: [`components/versions.env`](versions.env).
 3. **Dual Version Tracking:** For every component, both the **Chart Version** (the packaging metadata version) and the **App Version** (the underlying application container image tag) are explicitly recorded.
 
-### Authoritative Component Version Registry
+### Version Registry Format
 
-| Component | Target Namespace | Chart Version | App Version | Pinned Env Variable |
-| :--- | :--- | :--- | :--- | :--- |
-| **RustFS (Storage)** | `storage` | `0.1.0` | `1.0.0` | `RUSTFS_CHART_VERSION` / `RUSTFS_APP_VERSION` |
-| **Iceberg REST Catalog** | `catalog` | `0.1.0` | `0.7.1` | `CATALOG_CHART_VERSION` / `CATALOG_APP_VERSION` |
-| **Kafka (Ingestion)** | `ingestion` | `0.41.0` | `3.7.0` | `KAFKA_CHART_VERSION` / `KAFKA_APP_VERSION` |
-| **Flink (Processing)** | `processing` | `1.19.0` | `1.19.0` | `FLINK_CHART_VERSION` / `FLINK_APP_VERSION` |
-| **Trino (Query Engine)** | `query` | `0.28.0` | `442` | `TRINO_CHART_VERSION` / `TRINO_APP_VERSION` |
-| **Superset (BI)** | `bi` | `0.12.8` | `4.0.1` | `SUPERSET_CHART_VERSION` / `SUPERSET_APP_VERSION` |
-| **Airflow (Orchestration)** | `orchestration` | `1.13.0` | `2.9.1` | `AIRFLOW_CHART_VERSION` / `AIRFLOW_APP_VERSION` |
+Pins live only in [`components/versions.env`](versions.env). The `ois` binary parses it, so the format is strict:
+- one `KEY="value"` per line; `#` comments and blank lines are allowed, nothing else (no `export`, no `${…}` expansion, no command substitution);
+- keys are `UPPER_SNAKE_CASE`;
+- an empty value means the component is not pinned yet. It gets pinned when that component is added, never guessed.
+
+## Installing Charts
+
+Charts are installed straight from their repository URL with a pinned version:
+
+```bash
+helm upgrade --install <release> <chart> --repo "$<X>_CHART_REPO" --version "$<X>_CHART_VERSION"
+```
+
+or from an `oci://` reference with `--version`. `helm repo add` is never used: the repository list on the user's machine is never read or modified.
 
 ## Resource-Budget Policy (Lean ~7 GiB Full Stack)
 
 To ensure the entire lakehouse platform fits within the lean full-stack local profile (~4 vCPU / 7 GiB RAM / 30 GiB disk ceiling), every component's `values.yaml` must strictly adhere to the following resource-budget rules:
 
 ### Mandatory Resource Rules:
-1. **Single Replica Execution:** All stateful and stateless services (Kafka brokers, Flink TaskManagers, Trino workers, Superset pods, Airflow workers) **must** run with `replicaCount: 1`. Multi-replica or high-availability (HA) topologies are forbidden in local environments.
+1. **Single Replica Execution:** All stateful and stateless services (Kafka brokers, Flink TaskManagers, Trino workers, Superset pods, Dagster pods) **must** run with `replicaCount: 1`. Multi-replica or high-availability (HA) topologies are forbidden in local environments.
 2. **Explicit Resource Requests & Limits:** Every pod specification **must** declare explicit `resources.requests` and `resources.limits` for CPU and Memory. Uncapped pods are strictly forbidden.
 3. **Capped JVM Heaps:** JVM-based components (Kafka, Flink JobManager/TaskManager, Trino coordinator) **must** strictly cap Java heap sizes via environment variables or flags (e.g., `-Xms`, `-Xmx`, `KAFKA_HEAP_OPTS`) to ensure heap allocations do not exceed memory limits and trigger OOM Kills.
 
 ### Component Memory Allocation Floor (~7 GiB Total)
 - `storage` (RustFS): ~512 MiB RAM
 - `catalog` (REST Catalog): ~512 MiB RAM
-- `ingestion` (Kafka + Zookeeper/KRaft): ~1.5 GiB RAM (JVM heap capped at 1.0 GiB)
+- `ingestion` (Kafka, KRaft): ~1.5 GiB RAM (JVM heap capped at 1.0 GiB)
 - `processing` (Flink JobManager + TaskManager): ~1.5 GiB RAM (JVM heap capped at 1.0 GiB)
 - `query` (Trino Single-Node): ~1.75 GiB RAM (JVM heap capped at 1.25 GiB)
 - `bi` (Superset): ~768 MiB RAM
-- `orchestration` (Airflow / Maintenance): ~512 MiB RAM
+- `orchestration` (Dagster, incl. maintenance jobs): ~512 MiB RAM
 
 ## Namespace Convention & Strategy
 
@@ -160,10 +165,10 @@ All namespace names adhere strictly to **DNS-1123 sub-domain specifications**:
 - `storage`: Object storage substrate (RustFS S3).
 - `catalog`: Iceberg REST Catalog (Apache Iceberg REST service).
 - `ingestion`: Streaming data ingestion substrate (Kafka / Strimzi).
-- `processing`: Distributed compute engines (Flink / Spark).
+- `processing`: Stream processing engine (Flink).
 - `query`: Distributed SQL query engine (Trino).
 - `bi`: Analytics UI and visualization dashboards (Superset).
-- `orchestration`: Workflow and pipeline orchestration (Airflow).
+- `orchestration`: Workflow and pipeline orchestration (Dagster).
 - `maintenance`: System housekeeping and utility jobs.
 
 ### Idempotent Creation & Usage
@@ -190,9 +195,9 @@ Per-component Helm values and configuration manifests are organized under `compo
 - `components/cluster/`: Local Kubernetes cluster definition & provider config.
 - `components/storage/`: Object storage substrate (RustFS) Helm values (`components/storage/values.yaml`) and secret overlay template (`components/storage/values-secret.yaml.example`).
 - `components/catalog/`: Iceberg REST Catalog values & configuration.
-- `components/processing/`: Engine processing component values (Flink / Spark).
+- `components/processing/`: Stream processing component values (Flink).
 - `components/ingestion/`: Streaming ingestion components (Kafka).
 - `components/query/`: Query engine components (Trino).
 - `components/bi/`: Analytics and visualization components (Superset).
-- `components/orchestration/`: Workflow orchestration components (Airflow).
+- `components/orchestration/`: Workflow orchestration components (Dagster).
 - `components/maintenance/`: Maintenance & housekeeping utility manifests.
