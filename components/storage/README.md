@@ -44,6 +44,16 @@ kubectl --context open-iceberg -n storage port-forward svc/rustfs 9000:9000 9001
 
 The S3 API is then at `http://localhost:9000` and the console at `http://localhost:9001`.
 
+## Checking storage
+
+```bash
+./scripts/check-storage.sh
+```
+
+Needs AWS CLI v2 on the host (`brew install awscli`). The script port-forwards `svc/rustfs` to `127.0.0.1:19000` (override with `LOCAL_PORT=…`). It reads credentials from the `ois-storage-credentials` Secret, so it tests what the cluster actually uses, not `.env`. Then for each of `warehouse` and `flink` it uploads a random object, lists it, downloads it, compares the bytes and deletes it, printing `PASS <bucket>`.
+
+It uses a temporary AWS config with path-style addressing and ignores `~/.aws`, so your own profiles are neither read nor changed. Credentials stay in environment variables and are never printed. Any failure exits non-zero with a `FAIL` or `ERROR` line. On success or failure, it removes its test objects, the port-forward and its temp files.
+
 ## Credentials
 
 Credentials come from `RUSTFS_ROOT_USER` / `RUSTFS_ROOT_PASSWORD` in the gitignored `.env`. The deploy script turns them into two Secrets in `storage`:
