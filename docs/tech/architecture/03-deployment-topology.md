@@ -27,7 +27,7 @@ flowchart TB
         end
 
         subgraph nsIngest["ns: ingestion"]
-            kafkaSvc[[Service: kafka :9092]]
+            kafkaSvc[[Service: ois-kafka-bootstrap :9092]]
             kafkaPod[Kafka KRaft pod]
             kafkaPvc[(PVC)]
             prodPod[Producer Deployment]
@@ -50,7 +50,7 @@ flowchart TB
             flinkDep -.-> flinkCkpt
         end
 
-        subgraph nsCompute["ns: compute"]
+        subgraph nsQuery["ns: query"]
             trinoSvc[[Service: trino :8080]]
             trinoCoord[Trino coordinator]
             trinoWork[Trino workers]
@@ -84,23 +84,21 @@ flowchart TB
 
 ## Helm releases & source folders
 
-Each layer owns a `deploy/` subfolder of committed Helm values / manifests:
+Each component owns a `components/` subfolder of committed Helm values / manifests:
 
-| Release | Chart | `deploy/` folder | Namespace (convention) |
+| Release | Chart | `components/` folder | Namespace |
 | :--- | :--- | :--- | :--- |
-| *(cluster baseline)* | — | `deploy/cluster/` | — |
-| RustFS | RustFS Helm chart | `deploy/storage/` | `storage` |
-| Kafka | Kafka (KRaft) chart | `deploy/ingestion/` | `ingestion` |
-| Polaris | Polaris deploy values | `deploy/catalog/` | `catalog` |
-| Flink Operator + Deployment | Flink K8s Operator | `deploy/processing/` | `processing` |
-| Trino | Trino Helm chart | `deploy/query/` | `compute` |
-| Dagster | Dagster Helm chart | `deploy/orchestration/` | `orchestration` |
-| Maintenance schedules | *(Dagster jobs)* | `deploy/maintenance/` | `orchestration` |
-| Superset + Redis + Postgres | Superset Helm chart | `deploy/bi/` | `bi` |
+| *(cluster baseline)* | — | `components/cluster/` | — |
+| RustFS | RustFS Helm chart | `components/storage/` | `storage` |
+| Kafka | Strimzi operator (KRaft) | `components/kafka/` | `ingestion` |
+| Polaris | Polaris Helm chart | `components/catalog/` | `catalog` |
+| Flink Operator + Deployment | Flink K8s Operator | `components/flink/` | `processing` |
+| Trino | Trino Helm chart | `components/trino/` | `query` |
+| Dagster (incl. maintenance jobs) | Dagster Helm chart | `components/dagster/` | `orchestration` |
+| Superset + Redis + Postgres | Superset Helm chart | `components/superset/` | `bi` |
 
-> `deploy/cluster/` holds the Minikube/StorageClass baseline rather than a Helm
-> release. Folder names and namespace names are independent — Trino's values live
-> in `deploy/query/` but the workload runs in the `compute` namespace.
+> `components/cluster/` holds the Minikube/StorageClass baseline rather than a Helm
+> release. Folder names follow the component, namespace names follow the layer.
 
 > Namespaces follow the per-layer convention established by the foundation
 > layer's tooling baseline. Downstream configs reference services by their
@@ -111,15 +109,15 @@ Each layer owns a `deploy/` subfolder of committed Helm values / manifests:
 These are the addresses components use to find each other — the backbone of
 every layer contract:
 
-| Service | In-cluster DNS (shape) | Port | Consumed by |
+| Service | In-cluster DNS | Port | Consumed by |
 | :--- | :--- | :--- | :--- |
-| RustFS S3 API | `rustfs.<ns>.svc.cluster.local` | 9000 | Polaris, Flink, Trino |
-| RustFS console | `rustfs.<ns>.svc.cluster.local` | 9001 | operator (port-forward) |
-| Kafka bootstrap | `kafka.<ns>.svc.cluster.local` | 9092 | Producer, Flink |
-| Polaris REST catalog | `polaris.<ns>.svc.cluster.local` | 8181 | Flink, Trino, Dagster sensor |
-| Trino coordinator | `trino.<ns>.svc.cluster.local` | 8080 | dbt, Superset, maintenance jobs, CLI |
-| Dagster webserver | `dagster.<ns>.svc.cluster.local` | 3000 | operator (port-forward) |
-| Superset | `superset.<ns>.svc.cluster.local` | 8088 | analysts (port-forward) |
+| RustFS S3 API | `rustfs.storage.svc.cluster.local` | 9000 | Polaris, Flink, Trino |
+| RustFS console | `rustfs.storage.svc.cluster.local` | 9001 | operator (port-forward) |
+| Kafka bootstrap | `ois-kafka-bootstrap.ingestion.svc.cluster.local` | 9092 | Producer, Flink |
+| Polaris REST catalog | `polaris.catalog.svc.cluster.local` | 8181 | Flink, Trino, Dagster sensor |
+| Trino coordinator | `trino.query.svc.cluster.local` | 8080 | dbt, Superset, maintenance jobs, CLI |
+| Dagster webserver | `dagster.orchestration.svc.cluster.local` | 3000 | operator (port-forward) |
+| Superset | `superset.bi.svc.cluster.local` | 8088 | analysts (port-forward) |
 
 > **Path-style S3 access is required** everywhere RustFS is addressed
 > (`s3.path-style-access=true`) — RustFS does not support virtual-hosted-style
