@@ -51,7 +51,7 @@ flowchart LR
     end
 
     subgraph storage["Foundation & Storage"]
-        rustfs[(RustFS<br/>S3-compatible<br/>raw · silver · gold · platinum)]
+        rustfs[(RustFS<br/>S3-compatible<br/>warehouse · flink buckets)]
     end
 
     subgraph compute["Compute"]
