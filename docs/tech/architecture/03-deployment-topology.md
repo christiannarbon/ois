@@ -21,8 +21,9 @@ flowchart TB
     subgraph cluster["Minikube cluster"]
         subgraph nsStorage["ns: storage"]
             rustfsSvc[[Service: rustfs :9000 / :9001]]
-            rustfsPod[RustFS pod]
-            rustfsPvc[(PVC 10Gi)]
+            rustfsPod[RustFS pod<br/>buckets: warehouse · flink]
+            rustfsPvc[(PVC rustfs-data 10Gi)]
+            rustfsCreds[Secret: ois-storage-credentials]
             rustfsSvc --- rustfsPod --- rustfsPvc
         end
 
@@ -121,13 +122,16 @@ every layer contract:
 
 > **Path-style S3 access is required** everywhere RustFS is addressed
 > (`s3.path-style-access=true`) — RustFS does not support virtual-hosted-style
-> bucket addressing by default.
+> bucket addressing by default. Use region `us-east-1`. S3 clients authenticate
+> with `Secret/ois-storage-credentials` (`access-key`, `secret-key`) in `storage`.
+> The `rustfs` Service is owned by the stack; the chart's own `rustfs-svc` is not
+> part of the contract.
 
 ## Persistence
 
 | Workload | Persisted state | Backed by |
 | :--- | :--- | :--- |
-| RustFS | all Parquet + Iceberg metadata objects | PVC (lean 10Gi local profile) |
+| RustFS | all Parquet + Iceberg metadata objects (`warehouse`), Flink state (`flink`) | PVC `rustfs-data`, 10Gi on the default `standard` StorageClass |
 | Kafka | topic log segments | PVC |
 | Polaris | catalog metastore (namespaces, tables, grants) | Postgres/PVC |
 | Flink | checkpoints + savepoints | RustFS (S3 state backend) |
