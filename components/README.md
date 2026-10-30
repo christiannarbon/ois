@@ -67,14 +67,13 @@ Every stack component maintains its declarative Helm override configuration in a
 `components/<component>/values.yaml`
 
 Examples:
-- Storage Substrate: `components/storage/values.yaml`
-- REST Catalog: `components/catalog/values.yaml`
-- Streaming Ingestion: `components/ingestion/values.yaml`
-- Compute Processing: `components/processing/values.yaml`
-- Distributed Query: `components/query/values.yaml`
-- Business Intelligence: `components/bi/values.yaml`
-- Workflow Orchestration: `components/orchestration/values.yaml`
-- Maintenance Utilities: `components/maintenance/values.yaml`
+- Storage: `components/storage/values.yaml`
+- Ingestion: `components/kafka/values.yaml`
+- Catalog: `components/catalog/values.yaml`
+- Processing: `components/flink/values.yaml`
+- Query: `components/trino/values.yaml`
+- Orchestration: `components/dagster/values.yaml`
+- BI: `components/superset/values.yaml`
 
 **Convention Rules:**
 1. All custom configurations, resource overrides, replica counts, and container arguments **must** be declared within the respective `components/<component>/values.yaml` file.
@@ -151,7 +150,7 @@ To ensure the entire lakehouse platform fits within the lean full-stack local pr
 `open-iceberg-stack` adopts a **Per-Component Namespace Strategy**.
 
 ### Strategy Rationale
-- **Isolation & RBAC Scoping:** Scoping architecture layers into dedicated namespaces (`storage`, `catalog`, `ingestion`, `processing`, `query`, `bi`, `orchestration`, `maintenance`) enforces clean ServiceAccount, Secret, and RBAC boundaries between infrastructure layers.
+- **Isolation & RBAC Scoping:** Scoping architecture layers into dedicated namespaces (`storage`, `ingestion`, `catalog`, `processing`, `query`, `orchestration`, `bi`) enforces clean ServiceAccount, Secret, and RBAC boundaries between infrastructure layers.
 - **Selective Teardown & Lifecycle:** Enables teardown or re-installation of individual components (e.g., resetting `query` or `ingestion`) without disrupting shared storage substrate (`storage`).
 - **Resource Quota & Monitoring:** Simplifies resource consumption tracking and memory/CPU limit enforcement per architecture layer.
 
@@ -163,13 +162,12 @@ All namespace names adhere strictly to **DNS-1123 sub-domain specifications**:
 
 ### Defined Per-Component Namespaces
 - `storage`: Object storage substrate (RustFS S3).
-- `catalog`: Iceberg REST Catalog (Apache Iceberg REST service).
-- `ingestion`: Streaming data ingestion substrate (Kafka / Strimzi).
+- `ingestion`: Streaming data ingestion (Kafka via Strimzi).
+- `catalog`: Iceberg REST catalog (Apache Polaris).
 - `processing`: Stream processing engine (Flink).
 - `query`: Distributed SQL query engine (Trino).
+- `orchestration`: Workflow orchestration and table maintenance jobs (Dagster).
 - `bi`: Analytics UI and visualization dashboards (Superset).
-- `orchestration`: Workflow and pipeline orchestration (Dagster).
-- `maintenance`: System housekeeping and utility jobs.
 
 ### Idempotent Creation & Usage
 All namespaces are declared in [`components/namespaces.yaml`](namespaces.yaml) and created idempotently via `kubectl apply -f`:
@@ -189,15 +187,10 @@ kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f -
 
 ## Repository Organization (`components/`)
 
-Per-component Helm values and configuration manifests are organized under `components/`. A component directory is created when that component gets its first asset:
-- `components/versions.env`: Authoritative chart and appVersion registry.
-- `components/namespaces.yaml`: Consolidated per-component Namespace manifest.
+Component assets live under `components/`, one directory per component. Today it holds:
+- `components/versions.env`: Pinned chart, image and jar versions.
+- `components/namespaces.yaml`: Per-component Namespace manifest.
 - `components/cluster/`: Local Kubernetes cluster definition & provider config.
-- `components/storage/`: Object storage substrate (RustFS) Helm values (`components/storage/values.yaml`) and secret overlay template (`components/storage/values-secret.yaml.example`).
-- `components/catalog/`: Iceberg REST Catalog values & configuration.
-- `components/processing/`: Stream processing component values (Flink).
-- `components/ingestion/`: Streaming ingestion components (Kafka).
-- `components/query/`: Query engine components (Trino).
-- `components/bi/`: Analytics and visualization components (Superset).
-- `components/orchestration/`: Workflow orchestration components (Dagster).
-- `components/maintenance/`: Maintenance & housekeeping utility manifests.
+- `components/storage/`: Object storage (RustFS) Helm values and secret overlay template.
+
+Later components add their own directory when they get their first asset: `kafka/`, `catalog/`, `flink/`, `trino/`, `dagster/`, `superset/`. Images the stack builds itself live in `images/` (`flink/`, `dagster/`), and the clickstream sample lives in `samples/clickstream/` (`producer/`, `transform/`, `dashboards/`).
