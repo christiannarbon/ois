@@ -5,15 +5,13 @@ and how the data is progressively refined across the medallion tiers.
 
 ## The medallion tiers
 
-Data is refined in stages, each tier landing as Iceberg tables in its own RustFS
-bucket:
+Data is refined in stages. All Iceberg tables live in the `warehouse` bucket; tiers are catalog namespaces.
 
-| Tier | Bucket | Owner | Contents |
+| Tier | Catalog namespace | Owner | Contents |
 | :--- | :--- | :--- | :--- |
-| **Raw** | `lakehouse-raw` | Flink | Append-only clickstream events, as ingested |
-| **Silver** | `lakehouse-silver` | dbt staging | Cleansed / typed / deduplicated events |
-| **Gold** | `lakehouse-gold` | dbt marts | Business aggregates (funnels, cart-abandonment, trending products) |
-| **Platinum** | `lakehouse-platinum` | *reserved* | Highly-curated / serving-optimized aggregates (future) |
+| **Raw** | `raw` | Flink | Append-only clickstream events, as ingested |
+| **Silver** | `staging` | dbt staging | Cleansed / typed / deduplicated events |
+| **Gold** | `marts` | dbt marts | Business aggregates (funnels, cart-abandonment, trending products) |
 
 ## End-to-end flow
 
@@ -34,7 +32,7 @@ flowchart TB
     topic --> parse
 
     subgraph rawtier["RAW tier"]
-        rawtbl[(Iceberg raw table<br/>lakehouse-raw)]
+        rawtbl[(Iceberg raw table<br/>ns: raw)]
     end
     sink -->|Parquet + snapshot per checkpoint| rawtbl
 
@@ -46,10 +44,10 @@ flowchart TB
     rawtbl -->|read via Trino| stg
 
     subgraph silvertier["SILVER tier"]
-        silvertbl[(Iceberg silver tables<br/>lakehouse-silver)]
+        silvertbl[(Iceberg silver tables<br/>ns: staging)]
     end
     subgraph goldtier["GOLD tier"]
-        goldtbl[(Iceberg gold tables<br/>lakehouse-gold)]
+        goldtbl[(Iceberg gold tables<br/>ns: marts)]
     end
     stg --> silvertbl --> mart --> goldtbl
 
