@@ -36,11 +36,11 @@ flowchart TB
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| Deploy | Superset Helm chart, `deploy/bi/` | Superset + Redis + Postgres |
+| Deploy | Superset Helm chart, `components/superset/` | Superset + Redis + Postgres |
 | Metadata DB | PostgreSQL + PVC | dashboards/datasets/users persist |
 | Cache/results | Redis | cache backend + Celery results |
 | Driver | `sqlalchemy-trino` baked into image | how the dialect reaches Superset |
-| Connection | `trino://<user>@trino.<ns>.svc.cluster.local:8080/iceberg` | per the [Trino connection contract](05-compute-engine.md) |
+| Connection | `trino://<user>@trino.query.svc.cluster.local:8080/iceberg` | per the [Trino connection contract](05-compute-engine.md) |
 | Config overrides | `SECRET_KEY`, cache config, Celery | via committed Superset config |
 | Datasets | registered on **gold** tables | semantic layer references dbt metrics |
 | Refresh | dashboard auto-refresh window | tuned vs. cache TTL |
@@ -119,5 +119,5 @@ the caching/refresh posture, and the **whole-stack runbook** (zero → live
 dashboard) that ties every layer together. Nothing consumes this layer; it is the
 end of the line.
 
-Target folders: `deploy/bi/` (Helm values, Superset config, and exported
+Target folders: `components/superset/` (Helm values, Superset config, and exported
 dashboard/dataset assets), `scripts/`.
