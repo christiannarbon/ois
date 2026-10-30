@@ -26,7 +26,7 @@ flowchart TB
         code --- sensor
         code --- assets
     end
-    subgraph dbt["dbt project (apps/dbt)"]
+    subgraph dbt["dbt project (samples/clickstream/transform)"]
         stg[staging models → silver]
         mart[mart models → gold]
         stg --> mart
@@ -55,9 +55,9 @@ flowchart LR
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| Dagster deploy | Helm, `deploy/orchestration/` | webserver + daemon + run/event storage |
+| Dagster deploy | Helm, `components/dagster/` | webserver + daemon + run/event storage |
 | dbt adapter | `dbt-trino` | profile → [Trino connection contract](05-compute-engine.md) |
-| dbt target | catalog `iceberg`, silver/gold schemas | writes to `lakehouse-silver/gold` |
+| dbt target | catalog `iceberg`, silver/gold schemas | writes to catalog namespaces `staging`/`marts` in the `warehouse` bucket |
 | Write grants | dbt principal: create/write on silver+gold ns | from the [catalog RBAC model](03-governance-catalog.md) |
 | Materialization | staging (table/incremental), marts (table/incremental) | incremental adds snapshots → [maintenance surface](07-day-two-operations.md) |
 | Assets | dbt models loaded as SDAs | one Dagster asset per dbt model |
@@ -103,6 +103,6 @@ empty runs between checkpoints.
 - **Orchestration contract:** which assets/jobs exist, what the sensor watches
   and triggers, how to run/observe a materialization.
 
-Target folders: `deploy/orchestration/` (Helm values), `apps/dagster/` (code
-location, sensor, asset definitions), `apps/dbt/` (dbt project, models,
+Target folders: `components/dagster/` (Helm values), `images/dagster/` (code
+location, sensor, asset definitions), `samples/clickstream/transform/` (dbt project, models,
 `profiles.yml`), `scripts/`.
