@@ -1,0 +1,38 @@
+# Credentials come from Secret "rustfs-root", created at deploy time.
+replicaCount: 1
+
+mode:
+  standalone:
+    enabled: true
+  distributed:
+    enabled: false
+
+image:
+  rustfs:
+    tag: ""
+
+secret:
+  existingSecret: rustfs-root
+
+# Minikube has no "local-path" class, which is the chart default.
+storageclass:
+  name: standard
+  dataStorageSize: 10Gi
+  logStorageSize: 256Mi
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+service:
+  type: ClusterIP
+  endpoint:
+    port: 9000
+  console:
+    port: 9001
+
+ingress:
+  enabled: false
