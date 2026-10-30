@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-NAMESPACES_MANIFEST="${REPO_ROOT}/deploy/namespaces.yaml"
+NAMESPACES_MANIFEST="${REPO_ROOT}/components/namespaces.yaml"
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "ERROR: 'kubectl' binary not found on PATH." >&2

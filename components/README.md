@@ -1,4 +1,4 @@
-# Deployment & Helm Tooling Baseline (`deploy/`)
+# Component assets & deployment baseline (`components/`)
 
 This document defines the deployment tooling baseline, Helm version requirements, installation procedures, namespace conventions, values-file layout, version pinning policy, resource-budget policies, and secrets handling for `open-iceberg-stack`.
 
@@ -64,20 +64,20 @@ Expected output should indicate version `v3.12.0` or higher (e.g., `v3.15.2` or 
 
 Every stack component maintains its declarative Helm override configuration in a dedicated `values.yaml` file under its respective component directory:
 
-`deploy/<component>/values.yaml`
+`components/<component>/values.yaml`
 
 Examples:
-- Storage Substrate: `deploy/storage/values.yaml`
-- REST Catalog: `deploy/catalog/values.yaml`
-- Streaming Ingestion: `deploy/ingestion/values.yaml`
-- Compute Processing: `deploy/processing/values.yaml`
-- Distributed Query: `deploy/query/values.yaml`
-- Business Intelligence: `deploy/bi/values.yaml`
-- Workflow Orchestration: `deploy/orchestration/values.yaml`
-- Maintenance Utilities: `deploy/maintenance/values.yaml`
+- Storage Substrate: `components/storage/values.yaml`
+- REST Catalog: `components/catalog/values.yaml`
+- Streaming Ingestion: `components/ingestion/values.yaml`
+- Compute Processing: `components/processing/values.yaml`
+- Distributed Query: `components/query/values.yaml`
+- Business Intelligence: `components/bi/values.yaml`
+- Workflow Orchestration: `components/orchestration/values.yaml`
+- Maintenance Utilities: `components/maintenance/values.yaml`
 
 **Convention Rules:**
-1. All custom configurations, resource overrides, replica counts, and container arguments **must** be declared within the respective `deploy/<component>/values.yaml` file.
+1. All custom configurations, resource overrides, replica counts, and container arguments **must** be declared within the respective `components/<component>/values.yaml` file.
 2. Ad-hoc `--set` flags in deployment scripts are strictly prohibited except for transient dynamic secrets or context parameters.
 
 ## Secrets & Credentials Handling Policy
@@ -85,14 +85,14 @@ Examples:
 To keep credentials secure during local development and prevent credential leaks in version control:
 
 ### 1. Secret Handling Mechanism
-- **Secret Values Overlay:** Secret configurations are managed via gitignored secret overlay files (e.g., `deploy/<component>/values-secret.yaml` or `*.secret.yaml`).
+- **Secret Values Overlay:** Secret configurations are managed via gitignored secret overlay files (e.g., `components/<component>/values-secret.yaml` or `*.secret.yaml`).
 - **Helm Invocation:** Helm installations pass the secret overlay as a second values file flag:
-  `helm install <release> <chart> -f deploy/<component>/values.yaml -f deploy/<component>/values-secret.yaml`
+  `helm install <release> <chart> -f components/<component>/values.yaml -f components/<component>/values-secret.yaml`
 - **Environment Template:** Environment variables can also be declared in a gitignored `.env` file copied from [`.env.example`](../.env.example).
 
 ### 2. Version Control Safety & Guardrails
 - **Gitignore Protection:** All secret file patterns (`.env`, `.env.local`, `*-secret.yaml`, `*.secret.yaml`, `*.secret.*`, `values-secret.yaml`) are strictly covered under [`.gitignore`](../.gitignore).
-- **Placeholder Templates:** The repository commits **only** non-sensitive placeholder templates (e.g., `.env.example`, `deploy/storage/values-secret.yaml.example`).
+- **Placeholder Templates:** The repository commits **only** non-sensitive placeholder templates (e.g., `.env.example`, `components/storage/values-secret.yaml.example`).
 - **No `--set` Leakage:** Secrets **must never** be hardcoded into committed shell script `--set` flags, as shell command lines leak sensitive data into shell history and CI job logs.
 - **No Log Echoing:** Installation scripts and CI pipelines **must never** print or echo resolved secret values to stdout or log outputs.
 
@@ -100,7 +100,7 @@ To keep credentials secure during local development and prevent credential leaks
 Before committing new files, verify that secret files are ignored by Git:
 
 ```bash
-git check-ignore .env deploy/storage/values-secret.yaml test.secret.yaml
+git check-ignore .env components/storage/values-secret.yaml test.secret.yaml
 ```
 
 ## Chart-Version Pinning Policy
@@ -108,7 +108,7 @@ git check-ignore .env deploy/storage/values-secret.yaml test.secret.yaml
 To guarantee deterministic, reproducible deployments across developer environments and CI pipelines:
 
 1. **Strict Version Pinning:** Every Helm chart version **must** be explicitly pinned to an exact release version. Using `latest`, unpinned charts, or floating version ranges is strictly forbidden.
-2. **Single Authoritative Registry:** All pinned chart versions and bundled container `appVersion` targets are recorded in a single authoritative file: [`deploy/versions.env`](versions.env).
+2. **Single Authoritative Registry:** All pinned chart versions and bundled container `appVersion` targets are recorded in a single authoritative file: [`components/versions.env`](versions.env).
 3. **Dual Version Tracking:** For every component, both the **Chart Version** (the packaging metadata version) and the **App Version** (the underlying application container image tag) are explicitly recorded.
 
 ### Authoritative Component Version Registry
@@ -167,11 +167,11 @@ All namespace names adhere strictly to **DNS-1123 sub-domain specifications**:
 - `maintenance`: System housekeeping and utility jobs.
 
 ### Idempotent Creation & Usage
-All namespaces are declared in [`deploy/namespaces.yaml`](namespaces.yaml) and created idempotently via `kubectl apply -f`:
+All namespaces are declared in [`components/namespaces.yaml`](namespaces.yaml) and created idempotently via `kubectl apply -f`:
 
 ```bash
 # Provision or update all per-component namespaces idempotently:
-kubectl apply -f deploy/namespaces.yaml
+kubectl apply -f components/namespaces.yaml
 
 # Alternatively, run the helper script:
 ./scripts/setup-namespaces.sh
@@ -182,17 +182,17 @@ kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f -
 
 *Note:* Bare `kubectl create namespace <ns>` commands are strictly prohibited in scripts as they error if the target namespace already exists. Deploying workloads into the `default` namespace is forbidden.
 
-## Repository Organization (`deploy/`)
+## Repository Organization (`components/`)
 
-Per-component Helm values and configuration manifests are organized under `deploy/`:
-- `deploy/versions.env`: Authoritative chart and appVersion registry.
-- `deploy/namespaces.yaml`: Consolidated per-component Namespace manifest.
-- `deploy/cluster/`: Local Kubernetes cluster definition & provider config.
-- `deploy/storage/`: Object storage substrate (RustFS) Helm values (`deploy/storage/values.yaml`) and secret overlay template (`deploy/storage/values-secret.yaml.example`).
-- `deploy/catalog/`: Iceberg REST Catalog values & configuration.
-- `deploy/processing/`: Engine processing component values (Flink / Spark).
-- `deploy/ingestion/`: Streaming ingestion components (Kafka).
-- `deploy/query/`: Query engine components (Trino).
-- `deploy/bi/`: Analytics and visualization components (Superset).
-- `deploy/orchestration/`: Workflow orchestration components (Airflow).
-- `deploy/maintenance/`: Maintenance & housekeeping utility manifests.
+Per-component Helm values and configuration manifests are organized under `components/`. A component directory is created when that component gets its first asset:
+- `components/versions.env`: Authoritative chart and appVersion registry.
+- `components/namespaces.yaml`: Consolidated per-component Namespace manifest.
+- `components/cluster/`: Local Kubernetes cluster definition & provider config.
+- `components/storage/`: Object storage substrate (RustFS) Helm values (`components/storage/values.yaml`) and secret overlay template (`components/storage/values-secret.yaml.example`).
+- `components/catalog/`: Iceberg REST Catalog values & configuration.
+- `components/processing/`: Engine processing component values (Flink / Spark).
+- `components/ingestion/`: Streaming ingestion components (Kafka).
+- `components/query/`: Query engine components (Trino).
+- `components/bi/`: Analytics and visualization components (Superset).
+- `components/orchestration/`: Workflow orchestration components (Airflow).
+- `components/maintenance/`: Maintenance & housekeeping utility manifests.

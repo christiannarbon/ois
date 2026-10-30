@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_FILE="${REPO_ROOT}/deploy/cluster/cluster.env"
+ENV_FILE="${REPO_ROOT}/components/cluster/cluster.env"
 
 # Finding 6d: Preflight PATH checks
 if ! command -v minikube >/dev/null 2>&1; then
@@ -22,7 +22,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 # Source cluster configuration
-# shellcheck source=../deploy/cluster/cluster.env
+# shellcheck source=../components/cluster/cluster.env
 source "${ENV_FILE}"
 
 PROFILE="${PROFILE:-open-iceberg}"

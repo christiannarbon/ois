@@ -1,4 +1,4 @@
-# Local Kubernetes Cluster Configuration (`deploy/cluster/`)
+# Local Kubernetes Cluster Configuration (`components/cluster/`)
 
 This directory contains the declarative cluster configuration for `open-iceberg-stack` using Minikube.
 
@@ -71,5 +71,5 @@ If invoking `minikube` directly, wrap in `bash -c` to ensure portable argument w
 
 ```bash
 # Load cluster variables and start (shell-safe for bash/zsh):
-bash -c 'source deploy/cluster/cluster.env && minikube start ${MINIKUBE_START_ARGS}'
+bash -c 'source components/cluster/cluster.env && minikube start ${MINIKUBE_START_ARGS}'
 ```
