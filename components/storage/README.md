@@ -12,6 +12,21 @@ RustFS is the S3-compatible object store under the lakehouse: Iceberg data and F
 
 Running the script again is safe: it upgrades the release in place.
 
+## Buckets
+
+| Bucket | Holds |
+| :--- | :--- |
+| `warehouse` | All Iceberg data; the catalog's base location. Medallion tiers are catalog namespaces inside it, not separate buckets. |
+| `flink` | Flink checkpoints (`s3://flink/checkpoints/<stream>`) and savepoints (`s3://flink/savepoints/<stream>`). |
+
+They are created by the Job in [`buckets-job.yaml`](buckets-job.yaml), the only place the bucket list (`BUCKETS`) is defined. The Job runs the pinned AWS CLI image in-cluster against the `rustfs` Service with the `ois-storage-credentials` Secret, and creates a bucket only if `head-bucket` says it is missing, so existing data is never touched.
+
+`deploy-storage.sh` runs the Job at the end of every deploy: it deletes the previous Job (Jobs are immutable), applies the manifest with `__AWSCLI_IMAGE__` replaced by `AWSCLI_IMAGE` from [`versions.env`](../versions.env), and waits for it to complete. If the Job fails, the script prints its logs and exits non-zero. To re-run it, run the deploy script again:
+
+```bash
+./scripts/deploy-storage.sh
+```
+
 ## Endpoints
 
 | What | Address | Notes |

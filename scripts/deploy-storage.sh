@@ -11,6 +11,8 @@ CTX="${PROFILE}"
 NS=storage
 ENV_FILE="${REPO_ROOT}/.env"
 
+[[ -n "${AWSCLI_IMAGE:-}" ]] || { echo "ERROR: AWSCLI_IMAGE not pinned in components/versions.env" >&2; exit 1; }
+
 for bin in kubectl helm; do
   command -v "$bin" >/dev/null || { echo "ERROR: '$bin' not found on PATH" >&2; exit 1; }
 done
@@ -51,3 +53,14 @@ kubectl --context "$CTX" apply -f "${REPO_ROOT}/components/storage/service.yaml"
 kubectl --context "$CTX" -n "$NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/name=rustfs,app.kubernetes.io/instance=rustfs --timeout=180s
 echo "RustFS is ready in namespace $NS"
+
+echo "Ensuring buckets..."
+kubectl --context "$CTX" -n "$NS" delete job ois-storage-buckets --ignore-not-found --wait=true >/dev/null
+sed "s#__AWSCLI_IMAGE__#${AWSCLI_IMAGE}#" "${REPO_ROOT}/components/storage/buckets-job.yaml" \
+  | kubectl --context "$CTX" apply -f - >/dev/null
+if ! kubectl --context "$CTX" -n "$NS" wait --for=condition=complete job/ois-storage-buckets --timeout=180s; then
+  echo "ERROR: bucket Job failed; logs follow" >&2
+  kubectl --context "$CTX" -n "$NS" logs job/ois-storage-buckets >&2 || true
+  exit 1
+fi
+kubectl --context "$CTX" -n "$NS" logs job/ois-storage-buckets | grep '^bucket '
