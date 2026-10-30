@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ois-storage-buckets
+  namespace: storage
+  labels:
+    app.kubernetes.io/part-of: open-iceberg-stack
+    app.kubernetes.io/component: storage
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: create-buckets
+          image: __AWSCLI_IMAGE__
+          env:
+            - { name: BUCKETS, value: "warehouse flink" }
+            - { name: AWS_ENDPOINT_URL, value: "http://rustfs.storage.svc.cluster.local:9000" }
+            - { name: AWS_DEFAULT_REGION, value: us-east-1 }
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: ois-storage-credentials, key: access-key } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: ois-storage-credentials, key: secret-key } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              aws configure set default.s3.addressing_style path
+              for b in $BUCKETS; do
+                if aws s3api head-bucket --bucket "$b" 2>/dev/null; then
+                  echo "bucket $b: exists"
+                else
+                  aws s3api create-bucket --bucket "$b" >/dev/null
+                  echo "bucket $b: created"
+                fi
+              done
+              aws s3 ls
