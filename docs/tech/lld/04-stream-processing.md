@@ -32,7 +32,7 @@ flowchart TB
     operator -->|manages| fd
     kafka[[Kafka]] --> src
     polaris[[Polaris REST]] <-->|catalog + OAuth2 + vending| isink
-    rustfs[(RustFS lakehouse-raw)]
+    rustfs[(RustFS warehouse + flink)]
     isink -->|Parquet data files| rustfs
     isink -->|checkpoint state| rustfs
 ```
@@ -55,8 +55,8 @@ flowchart LR
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| Operator | Flink K8s Operator, `deploy/processing/` | manages `FlinkDeployment` CRs |
-| Image | custom `Dockerfile` in `apps/flink-jobs/` | Iceberg + REST + S3 + Kafka jars, pinned |
+| Operator | Flink K8s Operator, `components/flink/` | manages `FlinkDeployment` CRs |
+| Image | custom `Dockerfile` in `images/flink/` | Iceberg + REST + S3 + Kafka jars, pinned |
 | Catalog | type `rest`, URI → Polaris, OAuth2 client-credentials | vending mode per the [catalog contract](03-governance-catalog.md) |
 | S3 filesystem | endpoint → RustFS, **path-style**, vended creds | `s3.path-style-access=true` |
 | Source | Kafka `raw-clickstream`, JSON format | schema per the [ingestion contract](02-ingestion-backbone.md) |
@@ -99,5 +99,5 @@ OAuth2 client, vending mode); the [ingestion contract](02-ingestion-backbone.md)
   delivery guarantees.
 - How the custom image is built, versioned, and loaded.
 
-Target folders: `deploy/processing/` (operator + `FlinkDeployment`),
-`apps/flink-jobs/` (job source + custom image), `scripts/`.
+Target folders: `components/flink/` (operator + `FlinkDeployment`),
+`images/flink/` (job source + custom image), `scripts/`.
