@@ -87,11 +87,13 @@ Principals are granted only what their role in the pipeline requires:
 ```mermaid
 flowchart LR
     subgraph secrets["K8s Secrets (gitignored / templated)"]
-        rustfsRoot[RustFS root creds]
+        rustfsRoot[rustfs-root<br/>RustFS root creds]
+        storeCreds[ois-storage-credentials<br/>same creds, consumer keys]
         polRoot[Polaris root principal]
         engCreds[Per-engine client_id/secret]
     end
-    rustfsRoot --> rustfsPod[RustFS]
+    rustfsRoot -->|envFrom| rustfsPod[RustFS]
+    storeCreds --> s3Clients[Buckets Job · Polaris]
     polRoot --> polPod[Polaris bootstrap]
     engCreds --> flinkPod[Flink]
     engCreds --> trinoPod[Trino]
@@ -100,6 +102,12 @@ flowchart LR
 
 - No credentials are committed in `values.yaml` — they are injected via Secrets
   or env, with placeholders in the repo.
+- RustFS root credentials come from the gitignored `.env` (`RUSTFS_ROOT_USER`,
+  `RUSTFS_ROOT_PASSWORD`) and become two Secrets in `storage`: `rustfs-root`
+  (keys `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, read by the RustFS pod) and
+  `ois-storage-credentials` (keys `access-key`, `secret-key`, read by S3
+  clients). Values pass through a `chmod 600` temp file into
+  `kubectl create secret --from-env-file`, never a command-line argument.
 - The **Polaris root principal** is bootstrapped once (realm bootstrap) and used
   only to mint the per-engine principals; engines never use root.
 - **Credential vending is the boundary of trust:** even if an engine token
