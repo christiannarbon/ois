@@ -71,7 +71,7 @@ flowchart TB
 
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
-| SQL location | `sql/` | compaction / expiration / orphan SQL |
+| SQL location | the Dagster code location in `images/dagster/` | compaction / expiration / orphan SQL |
 | Execution engine | **[Trino](05-compute-engine.md)** | `ALTER TABLE ... EXECUTE OPTIMIZE`, `CALL system.*` |
 | Scheduler | **[Dagster](06-orchestration-transform.md)** jobs/schedules | siblings/extension of the code location |
 | Target file size | ~1GB (per [Flink write props](04-stream-processing.md)) | compaction target |
@@ -114,7 +114,7 @@ sequenceDiagram
 - **Safety rules** for running against the live Flink writer.
 - The **operation order** (compact → expire → orphans) and why.
 
-Target folders: `sql/` (the maintenance SQL itself), `deploy/maintenance/`
-(schedule manifests / Helm values), `apps/dagster/` (the jobs + schedules that
-execute the SQL, alongside the transform code location), `scripts/`
+Target folders: the Dagster code location in `images/dagster/` (the maintenance
+SQL and the jobs + schedules that execute it, alongside the transform code;
+maintenance is configured by the spec), `scripts/`
 (measurement).
