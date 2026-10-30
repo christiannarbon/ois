@@ -84,14 +84,20 @@ Examples:
 To keep credentials secure during local development and prevent credential leaks in version control:
 
 ### 1. Secret Handling Mechanism
-- **Secret Values Overlay:** Secret configurations are managed via gitignored secret overlay files (e.g., `components/<component>/values-secret.yaml` or `*.secret.yaml`).
-- **Helm Invocation:** Helm installations pass the secret overlay as a second values file flag:
-  `helm install <release> <chart> -f components/<component>/values.yaml -f components/<component>/values-secret.yaml`
-- **Environment Template:** Environment variables can also be declared in a gitignored `.env` file copied from [`.env.example`](../.env.example).
+- **Source:** Credentials live in a gitignored `.env` file copied from [`.env.example`](../.env.example).
+- **Kubernetes Secrets:** Deploy scripts read only the keys they need from `.env` and turn them into Secrets. Values go through a `chmod 600` temp file passed to `kubectl create secret generic --from-env-file`, piped as `--dry-run=client -o yaml` into `kubectl apply -f -`, so re-runs are idempotent. The temp file is removed on exit.
+- **Charts read Secrets, not values:** Helm values files never hold credentials; charts point at an existing Secret (e.g. `secret.existingSecret`).
+- **Storage example:** `./scripts/deploy-storage.sh` creates two Secrets in `storage` from `RUSTFS_ROOT_USER` / `RUSTFS_ROOT_PASSWORD`:
+
+  | Secret | Keys | Read by |
+  | :--- | :--- | :--- |
+  | `rustfs-root` | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | the RustFS chart (`envFrom`) |
+  | `ois-storage-credentials` | `access-key`, `secret-key` | buckets job, Polaris, Flink and other S3 clients |
+- **Never trace deploy scripts:** running them with `bash -x` prints the `printf` arguments that carry the credentials. Do not trace them in shared logs.
 
 ### 2. Version Control Safety & Guardrails
 - **Gitignore Protection:** All secret file patterns (`.env`, `.env.local`, `*-secret.yaml`, `*.secret.yaml`, `*.secret.*`, `values-secret.yaml`) are strictly covered under [`.gitignore`](../.gitignore).
-- **Placeholder Templates:** The repository commits **only** non-sensitive placeholder templates (e.g., `.env.example`, `components/storage/values-secret.yaml.example`).
+- **Placeholder Templates:** The repository commits **only** non-sensitive placeholder templates (e.g., `.env.example`).
 - **No `--set` Leakage:** Secrets **must never** be hardcoded into committed shell script `--set` flags, as shell command lines leak sensitive data into shell history and CI job logs.
 - **No Log Echoing:** Installation scripts and CI pipelines **must never** print or echo resolved secret values to stdout or log outputs.
 
@@ -99,7 +105,7 @@ To keep credentials secure during local development and prevent credential leaks
 Before committing new files, verify that secret files are ignored by Git:
 
 ```bash
-git check-ignore .env components/storage/values-secret.yaml test.secret.yaml
+git check-ignore .env test.secret.yaml
 ```
 
 ## Chart-Version Pinning Policy
