@@ -37,7 +37,7 @@ Two resource sizing profiles are defined:
 
 ## Resource Constraints & OOM / Swap Caveats
 
-- **Disk Sizing Ceiling:** The 30 GiB disk size ceiling is not pre-allocated, but represents a strict upper bound. 30 GiB is a tight budget intended to hold container images alongside lean Persistent Volume Claims (e.g., RustFS 10 GiB PVC, Kafka 8 GiB PVC).
+- **Disk Sizing Ceiling:** The 30 GiB disk size ceiling is not pre-allocated, but represents a strict upper bound. 30 GiB is a tight budget intended to hold container images alongside lean Persistent Volume Claims (e.g., the RustFS 10 GiB PVC).
 - **Resource Budget Policy:** The full stack can only run within 7 GiB RAM if every downstream component enforces strict resource capping (single replicas, trimmed JVM heap allocations).
 - **OOM / Swap Risk:** Expect potential Out-Of-Memory (OOM) or swap pressure when concurrent data ingestion (Kafka/Flink) and analytical queries (Trino/Superset) overlap.
 
@@ -45,6 +45,7 @@ Two resource sizing profiles are defined:
 
 - All cluster operations target the dedicated profile `open-iceberg` (`-p open-iceberg`).
 - Operations will **never** target or modify the default Minikube profile or any other host Kubernetes context (e.g. `orbstack`, `docker-desktop`), ensuring clean teardown without risk to unrelated local clusters.
+- `minikube start` runs with `--keep-context`, and every script passes `--context open-iceberg` explicitly, so your current kubectl context is never changed. Use `kubectl --context open-iceberg …` to talk to the cluster.
 - The `docker` driver runs against whichever Docker engine is active (`docker context ls`); the current reference host uses OrbStack, with OrbStack's built-in Kubernetes disabled.
 
 ## Invocation Examples (Compatible with bash and zsh)
@@ -64,6 +65,10 @@ FULL_STACK=1 RECREATE=1 ./scripts/cluster-up.sh
 # Teardown cluster and clean context:
 ./scripts/cluster-down.sh
 ```
+
+### Overrides
+
+Set these in the environment to change the defaults in [`cluster.env`](cluster.env): `OIS_PROFILE`, `OIS_DRIVER`, `OIS_KUBERNETES_VERSION`, `OIS_ADDONS`, `OIS_CPUS`, `OIS_MEMORY`, `OIS_DISK_SIZE`. The `OIS_` prefix keeps unrelated variables such as a stray `PROFILE` from retargeting the scripts.
 
 ### Shell-Safe Raw Invocation (bash and zsh)
 
