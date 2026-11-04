@@ -4,7 +4,7 @@ This document defines the deployment tooling baseline, Helm version requirements
 
 ## Helm Version Requirement
 
-All chart installations across all epics require **Helm ≥ 3.12**.
+Every chart installation requires **Helm ≥ 3.12**.
 
 - **Version Floor:** Helm 3.12 (or higher) is mandatory for stable OCI (Open Container Initiative) chart registry support, required for charts published as `oci://` artifacts.
 - **Incompatible Versions:** Helm 2 and Tiller are strictly forbidden due to security End-of-Life (EOL) and incompatibility with the stack workflow.
@@ -12,43 +12,10 @@ All chart installations across all epics require **Helm ≥ 3.12**.
 
 ## Installation Instructions
 
-### macOS (Homebrew)
+- **macOS:** `brew install helm`
+- **Linux:** your distribution's package manager, or a release archive from <https://github.com/helm/helm/releases> after checking its published checksum. Do not pipe a remote install script into a shell.
 
-```bash
-brew install helm
-```
-
-### Linux
-
-Using the official Helm installation script:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-```
-
-Alternatively, use system package managers:
-- **Debian / Ubuntu:**
-  ```bash
-  sudo apt-get install apt-transport-https --yes
-  curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
-  sudo apt-get update
-  sudo apt-get install helm
-  ```
-- **Fedora / RHEL:** `sudo dnf install helm`
-- **Snap:** `sudo snap install helm --classic`
-
-### Windows
-
-Using Chocolatey or Winget:
-
-```powershell
-# Chocolatey
-choco install kubernetes-helm
-
-# Winget
-winget install Helm.Helm
-```
+The repository's scripts are bash and target macOS and Linux; on Windows, run them inside WSL2.
 
 ## Verification
 
@@ -77,7 +44,7 @@ Examples:
 
 **Convention Rules:**
 1. All custom configurations, resource overrides, replica counts, and container arguments **must** be declared within the respective `components/<component>/values.yaml` file.
-2. Ad-hoc `--set` flags in deployment scripts are strictly prohibited except for transient dynamic secrets or context parameters.
+2. Ad-hoc `--set` flags in deployment scripts are prohibited, with one exception: image tags pinned in `components/versions.env` are passed with `--set` so the registry stays the single source of versions. Credentials are never passed with `--set`.
 
 ## Secrets & Credentials Handling Policy
 
@@ -85,6 +52,8 @@ To keep credentials secure during local development and prevent credential leaks
 
 ### 1. Secret Handling Mechanism
 - **Source:** Credentials live in a gitignored `.env` file copied from [`.env.example`](../.env.example).
+- **Format:** `KEY=value`, or `KEY="value"` / `KEY='value'` when the value has spaces or `#`. No `export`, no inline comments, one line per key. Deploy scripts reject anything else, naming the key but never printing the value.
+- **Rotation:** change the value in `.env` and re-run the deploy script. It restarts a workload whose credential Secret changed, because `envFrom` is only read at container start.
 - **Kubernetes Secrets:** Deploy scripts read only the keys they need from `.env` and turn them into Secrets. Values go through a `chmod 600` temp file passed to `kubectl create secret generic --from-env-file`, piped as `--dry-run=client -o yaml` into `kubectl apply -f -`, so re-runs are idempotent. The temp file is removed on exit.
 - **Charts read Secrets, not values:** Helm values files never hold credentials; charts point at an existing Secret (e.g. `secret.existingSecret`).
 - **Storage example:** `./scripts/deploy-storage.sh` creates two Secrets in `storage` from `RUSTFS_ROOT_USER` / `RUSTFS_ROOT_PASSWORD`:
@@ -139,11 +108,11 @@ To ensure the entire lakehouse platform fits within the lean full-stack local pr
 
 ### Mandatory Resource Rules:
 1. **Single Replica Execution:** All stateful and stateless services (Kafka brokers, Flink TaskManagers, Trino workers, Superset pods, Dagster pods) **must** run with `replicaCount: 1`. Multi-replica or high-availability (HA) topologies are forbidden in local environments.
-2. **Explicit Resource Requests & Limits:** Every pod specification **must** declare explicit `resources.requests` and `resources.limits` for CPU and Memory. Uncapped pods are strictly forbidden.
+2. **Explicit Resources:** Every container **must** declare `resources.requests` for CPU and memory and a `resources.limits.memory`. CPU limits are optional: they throttle bursts without protecting other pods, so they are only set where a component needs them.
 3. **Capped JVM Heaps:** JVM-based components (Kafka, Flink JobManager/TaskManager, Trino coordinator) **must** strictly cap Java heap sizes via environment variables or flags (e.g., `-Xms`, `-Xmx`, `KAFKA_HEAP_OPTS`) to ensure heap allocations do not exceed memory limits and trigger OOM Kills.
 
 ### Component Memory Allocation Floor (~7 GiB Total)
-- `storage` (RustFS): ~512 MiB RAM
+- `storage` (RustFS): 256 MiB request, 768 MiB limit (three concurrent 64 MiB uploads peak at ~380 MiB)
 - `catalog` (REST Catalog): ~512 MiB RAM
 - `ingestion` (Kafka, KRaft): ~1.5 GiB RAM (JVM heap capped at 1.0 GiB)
 - `processing` (Flink JobManager + TaskManager): ~1.5 GiB RAM (JVM heap capped at 1.0 GiB)
