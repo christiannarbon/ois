@@ -1,5 +1,7 @@
 # OPEN-ICE-01-S01-T05 — Cluster Lifecycle Verification & Resource Sizing Record
 
+> **Note:** paths in this record predate the move to `components/`: `deploy/cluster/` is now `components/cluster/`. See [foundation-decisions.md](foundation-decisions.md) for the current choices.
+
 - **Status:** APPROVED
 - **Date:** 2026-08-15
 - **Re-verified:** 2026-09-13 (host container engine migrated from Rancher Desktop to OrbStack)
