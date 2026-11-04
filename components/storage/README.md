@@ -6,11 +6,13 @@ RustFS is the S3-compatible object store under the lakehouse: Iceberg data and F
 
 `./scripts/deploy-storage.sh` installs, into the `storage` namespace of the `open-iceberg` cluster:
 
-- Helm release `rustfs` (chart pinned in [`versions.env`](../versions.env)), configured by [`values.yaml`](values.yaml): one standalone pod, one replica.
+- Helm release `rustfs` (chart pinned in [`versions.env`](../versions.env)), configured by [`values.yaml`](values.yaml): one standalone pod, one replica, 256 MiB memory request and 768 MiB limit. The RustFS and busybox image tags are passed from `versions.env` (`RUSTFS_APP_VERSION`, `BUSYBOX_VERSION`), so the chart's defaults never decide them.
 - PVCs `rustfs-data` (10Gi) and `rustfs-logs` (256Mi) on the `standard` StorageClass. Deleting the pod keeps the data; deleting the PVC does not.
 - Service `rustfs` from [`service.yaml`](service.yaml). This is the stable name the rest of the stack uses. The chart's own `rustfs-svc` also exists but nothing depends on it.
 
-Running the script again is safe: it upgrades the release in place.
+Running the script again is safe: it upgrades the release in place, keeps the last 5 Helm revisions, and leaves the pod alone unless the credentials changed.
+
+The memory limit is sized from measurements: RustFS was OOM-killed at 256 MiB by a single 40 MiB upload, and three concurrent 64 MiB uploads peak at about 380 MiB.
 
 ## Buckets
 
@@ -50,9 +52,9 @@ The S3 API is then at `http://localhost:9000` and the console at `http://localho
 ./scripts/check-storage.sh
 ```
 
-Needs AWS CLI v2 on the host (`brew install awscli`). The script port-forwards `svc/rustfs` to `127.0.0.1:19000` (override with `LOCAL_PORT=…`). It reads credentials from the `ois-storage-credentials` Secret, so it tests what the cluster actually uses, not `.env`. Then for each of `warehouse` and `flink` it uploads a random object, lists it, downloads it, compares the bytes and deletes it, printing `PASS <bucket>`.
+Needs AWS CLI v2 on the host (`brew install awscli`). The script port-forwards `svc/rustfs` to a free local port picked by kubectl (set `LOCAL_PORT=…` to choose one). No request is sent until kubectl reports the forward, so a port already used by something else is an error, not a silent redirect. It reads credentials from the `ois-storage-credentials` Secret, so it tests what the cluster actually uses, not `.env`. Then for each of `warehouse` and `flink` it uploads a 4 KiB and a 32 MiB (multipart) object, lists them, downloads them, compares the bytes and deletes them, printing `PASS <bucket>`. It fails if RustFS restarted during the check, which is how a too-low memory limit shows up.
 
-It uses a temporary AWS config with path-style addressing and ignores `~/.aws`, so your own profiles are neither read nor changed. Credentials stay in environment variables and are never printed. Any failure exits non-zero with a `FAIL` or `ERROR` line. On success or failure, it removes its test objects, the port-forward and its temp files.
+It uses a temporary AWS config with path-style addressing and ignores `~/.aws`, so your own profiles are neither read nor changed. Credentials stay in environment variables and are never printed. Any failure exits non-zero with a `FAIL` or `ERROR` line. On success or failure, it removes its test objects, the port-forward and its temp files. If RustFS dies mid-check the objects cannot be deleted; the script warns, and the next run removes anything under `check-storage/`.
 
 ## Credentials
 
@@ -69,5 +71,9 @@ To read a value locally, decode it straight into a variable or your terminal, an
 kubectl --context open-iceberg -n storage get secret ois-storage-credentials -o jsonpath='{.data.access-key}' | base64 -d
 kubectl --context open-iceberg -n storage get secret ois-storage-credentials -o jsonpath='{.data.secret-key}' | base64 -d
 ```
+
+To rotate them, change the values in `.env` and run `./scripts/deploy-storage.sh` again. RustFS reads its Secret only at start, so the script restarts it when `rustfs-root` changed, then waits until it is ready.
+
+`.env` lines must be `KEY=value`, or `KEY="value"` / `KEY='value'` when the value has spaces or `#`. No `export` and no inline comments; the script rejects them without printing the value.
 
 Never run `deploy-storage.sh` with `bash -x`: tracing prints the `printf` arguments that carry the credentials.
