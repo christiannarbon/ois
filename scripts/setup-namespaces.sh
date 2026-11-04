@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=../components/cluster/cluster.env
+source "${REPO_ROOT}/components/cluster/cluster.env"
+CTX="${PROFILE}"
 NAMESPACES_MANIFEST="${REPO_ROOT}/components/namespaces.yaml"
 
 if ! command -v kubectl >/dev/null 2>&1; then
@@ -19,9 +22,9 @@ echo "======================================================================="
 echo "Provisioning open-iceberg-stack per-component namespaces"
 echo "======================================================================="
 
-kubectl apply -f "${NAMESPACES_MANIFEST}"
+kubectl --context "${CTX}" apply -f "${NAMESPACES_MANIFEST}"
 
 echo "======================================================================="
 echo "Namespaces provisioned successfully:"
-kubectl get ns -l app.kubernetes.io/part-of=open-iceberg-stack
+kubectl --context "${CTX}" get ns -l app.kubernetes.io/part-of=open-iceberg-stack
 echo "======================================================================="

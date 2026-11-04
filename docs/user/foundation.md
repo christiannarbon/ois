@@ -41,7 +41,10 @@ for switching profiles.
 ```
 
 Edit `.env` before `deploy-storage.sh`: the password must be at least 8
-characters and not the `change-me…` placeholder. `.env` is gitignored.
+characters and not the `change-me…` placeholder. Write each line as `KEY=value`
+(quote the value if it has spaces or `#`; no `export`, no inline comments).
+`.env` is gitignored. To change the password later, edit `.env` and run
+`./scripts/deploy-storage.sh` again; it restarts RustFS with the new credentials.
 
 The last command should end with:
 
@@ -56,8 +59,8 @@ Every script is safe to re-run.
 ## What you get
 
 - Minikube profile and kube context `open-iceberg`. The scripts always pass this
-  context explicitly and never change your current one, except `cluster-up.sh`,
-  which switches to it.
+  context explicitly and never change your current one; use
+  `kubectl --context open-iceberg …` yourself.
 - RustFS in namespace `storage`, with its data on a 10Gi PVC that survives pod restarts.
 - In-cluster S3 endpoint `http://rustfs.storage.svc.cluster.local:9000`
   (path-style addressing, region `us-east-1`).
@@ -96,9 +99,12 @@ longer need it.
 | `minikube start` fails or pods are `OOMKilled` / stuck `Pending` for CPU or memory | Give Docker at least the profile's CPU and memory (Docker Desktop → Settings → Resources), then `./scripts/cluster-down.sh && ./scripts/cluster-up.sh`. |
 | `cluster '…' is running with … but FULL_STACK=… requests …` | Minikube cannot resize. Re-run with `RECREATE=1`, which deletes the cluster and its data. |
 | PVC `rustfs-data` stays `Pending` | The default StorageClass must be `standard`: check `kubectl --context open-iceberg get storageclass` and that the `storage-provisioner` addon is enabled (`minikube -p open-iceberg addons list`). `cluster-up.sh` enables both. |
-| `check-storage.sh`: `RustFS not reachable on 127.0.0.1:19000` or port-forward fails | Port 19000 may be taken: `LOCAL_PORT=19010 ./scripts/check-storage.sh`. Otherwise check the pod: `kubectl --context open-iceberg -n storage get pods`. |
+| `check-storage.sh`: `port-forward failed: … address already in use` | `LOCAL_PORT` points at a port that is taken; unset it to let kubectl pick a free one. Otherwise check the pod: `kubectl --context open-iceberg -n storage get pods`. |
+| `check-storage.sh`: `FAIL rustfs restarted during the check` | RustFS ran out of memory or crashed. Check `kubectl --context open-iceberg -n storage describe pod -l app.kubernetes.io/name=rustfs` for `OOMKilled`. |
 | `ERROR: …/.env missing; copy .env.example and set credentials` | Run `cp .env.example .env` and set the two RustFS values. |
-| `ERROR: set RUSTFS_ROOT_USER and RUSTFS_ROOT_PASSWORD in .env (…)` | The password is shorter than 8 characters, still the `change-me…` placeholder, or `rustfsadmin`. |
+| `ERROR: set RUSTFS_ROOT_USER and RUSTFS_ROOT_PASSWORD in .env` | One of the two keys is missing or empty. |
+| `ERROR: RustFS credentials in .env are too weak (…)` | The password is shorter than 8 characters, still the `change-me…` placeholder, or `rustfsadmin`. |
+| `ERROR: write RUSTFS_… as RUSTFS_…=value` or `… unquoted spaces …` | Fix the line in `.env`: no `export`, no inline comment, quote values with spaces or `#`. |
 | `ERROR: kube context 'open-iceberg' not found; run scripts/cluster-up.sh first` | The cluster is not up. Run `./scripts/cluster-up.sh`. |
 | `check-storage.sh`: `'aws' not found on PATH` | Install AWS CLI v2. |
 

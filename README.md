@@ -24,6 +24,8 @@ By default everything runs on Minikube and is kept small enough for a laptop. Th
 
 See [docs/user/foundation.md](docs/user/foundation.md) to bring up the storage layer.
 
+Run `make check` before committing: it lints the scripts and manifests, checks the version registry and the docs' links, and renders the storage chart. Design choices are recorded in [docs/decisions/foundation-decisions.md](docs/decisions/foundation-decisions.md).
+
 ## License
 
 MIT

@@ -1,5 +1,7 @@
 # OPEN-ICE-01-S01-T01 — Default Local Kubernetes Cluster Provider
 
+> **Note:** paths in this record predate the move to `components/`: `deploy/cluster/` is now `components/cluster/`. See [foundation-decisions.md](foundation-decisions.md) for the current choices.
+
 - **Status:** APPROVED
 - **Date:** 2026-08-13
 - **Epic:** OPEN-ICE-01 (Foundation & Storage Substrate)

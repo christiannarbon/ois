@@ -1,0 +1,7 @@
+extends: default
+rules:
+  document-start: disable
+  line-length: { max: 140 }
+  braces: { max-spaces-inside: 1 }
+  brackets: { max-spaces-inside: 1 }
+  truthy: { check-keys: false }

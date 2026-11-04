@@ -12,10 +12,28 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - { name: home, emptyDir: {} }
       containers:
         - name: create-buckets
           image: __AWSCLI_IMAGE__
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: home, mountPath: /home/aws }
           env:
+            - { name: HOME, value: /home/aws }
             - { name: BUCKETS, value: "warehouse flink" }
             - { name: AWS_ENDPOINT_URL, value: "http://rustfs.storage.svc.cluster.local:9000" }
             - { name: AWS_DEFAULT_REGION, value: us-east-1 }

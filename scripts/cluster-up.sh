@@ -38,8 +38,8 @@ fi
 SERVER_MINOR_VER=$(echo "${KUBERNETES_VERSION:-v1.30.0}" | sed -E 's/v?[0-9]+\.([0-9]+).*/\1/')
 
 if [[ -n "${KUBECTL_CLIENT_VER}" && -n "${SERVER_MINOR_VER}" ]]; then
-  CLIENT_MINOR_NUM=$(echo "${KUBECTL_CLIENT_VER}" | sed 's/[^0-9]//g')
-  SERVER_MINOR_NUM=$(echo "${SERVER_MINOR_VER}" | sed 's/[^0-9]//g')
+  CLIENT_MINOR_NUM="${KUBECTL_CLIENT_VER//[^0-9]/}"
+  SERVER_MINOR_NUM="${SERVER_MINOR_VER//[^0-9]/}"
   if [[ -n "${CLIENT_MINOR_NUM}" && -n "${SERVER_MINOR_NUM}" ]]; then
     SKEW=$(( CLIENT_MINOR_NUM > SERVER_MINOR_NUM ? CLIENT_MINOR_NUM - SERVER_MINOR_NUM : SERVER_MINOR_NUM - CLIENT_MINOR_NUM ))
     if (( SKEW > 1 )); then
@@ -68,8 +68,8 @@ if [[ "${IS_RUNNING}" = true ]]; then
 
   if [[ -z "${LIVE_CPUS}" || -z "${LIVE_MEMORY}" ]]; then
     if command -v python3 >/dev/null 2>&1; then
-      LIVE_CPUS=$(python3 -c "import sys, json, subprocess; data=json.loads(subprocess.check_output(['minikube','profile','list','-o','json'])); p=[x['Config'] for x in data.get('valid',[]) if x.get('Name')=='${PROFILE}']; print(p[0]['CPUs'] if p else '')" 2>/dev/null || true)
-      LIVE_MEMORY=$(python3 -c "import sys, json, subprocess; data=json.loads(subprocess.check_output(['minikube','profile','list','-o','json'])); p=[x['Config'] for x in data.get('valid',[]) if x.get('Name')=='${PROFILE}']; print(p[0]['Memory'] if p else '')" 2>/dev/null || true)
+      LIVE_CPUS=$(minikube profile list -o json 2>/dev/null | python3 -I -c "import sys, json; p=[x['Config'] for x in json.load(sys.stdin).get('valid', []) if x.get('Name') == sys.argv[1]]; print(p[0]['CPUs'] if p else '')" "${PROFILE}" 2>/dev/null || true)
+      LIVE_MEMORY=$(minikube profile list -o json 2>/dev/null | python3 -I -c "import sys, json; p=[x['Config'] for x in json.load(sys.stdin).get('valid', []) if x.get('Name') == sys.argv[1]]; print(p[0]['Memory'] if p else '')" "${PROFILE}" 2>/dev/null || true)
     fi
   fi
 
@@ -117,16 +117,15 @@ for addon in ${ADDONS}; do
   minikube addons enable "${addon}" -p "${PROFILE}"
 done
 
-# Ensure active kubectl context is open-iceberg
-kubectl config use-context "${PROFILE}" >/dev/null 2>&1 || true
+kubectl config get-contexts "${PROFILE}" >/dev/null 2>&1 \
+  || { echo "ERROR: kube context '${PROFILE}' was not created by minikube" >&2; exit 1; }
 
-# Finding 3: Probe node readiness and default StorageClass assertion
 echo "Waiting for cluster nodes to become Ready..."
-kubectl wait --for=condition=Ready nodes --all --timeout=300s
+kubectl --context "${PROFILE}" wait --for=condition=Ready nodes --all --timeout=300s
 
 echo "Verifying default StorageClass..."
-DEFAULT_SCS=$(kubectl get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' || true)
-DEFAULT_SC_COUNT=$(echo "${DEFAULT_SCS}" | grep -c . || echo 0)
+DEFAULT_SCS=$(kubectl --context "${PROFILE}" get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -v '^$' || true)
+DEFAULT_SC_COUNT=$(printf '%s\n' "${DEFAULT_SCS}" | grep -c . || true)
 
 if [[ "${DEFAULT_SC_COUNT}" -ne 1 ]]; then
   echo "ERROR: Expected exactly 1 default StorageClass, found ${DEFAULT_SC_COUNT}:" >&2
@@ -138,10 +137,9 @@ if [[ "${DEFAULT_SC_COUNT}" -ne 1 ]]; then
   exit 1
 fi
 
-# Finding 6a: Correct quoting for context fallback
-CURRENT_CTX=$(kubectl config current-context 2>/dev/null || echo "${PROFILE}")
+CURRENT_CTX=$(kubectl config current-context 2>/dev/null || echo "(none)")
 
 echo "======================================================================="
-echo "Cluster '${PROFILE}' is ready."
-echo "Active context: ${CURRENT_CTX}"
+echo "Cluster '${PROFILE}' is ready. Use it with: kubectl --context ${PROFILE} ..."
+echo "Your current context is unchanged: ${CURRENT_CTX}"
 echo "======================================================================="
