@@ -56,10 +56,12 @@ Assets: `components/storage/values.yaml` (Helm values),
 | Concern | Setting | Notes |
 | :--- | :--- | :--- |
 | Cluster | Minikube profile `open-iceberg`, docker driver, `components/cluster/cluster.env` | addons `default-storageclass` + `storage-provisioner` give the default `standard` StorageClass |
-| Chart | `rustfs` from `RUSTFS_CHART_REPO`, version `RUSTFS_CHART_VERSION`, app `RUSTFS_APP_VERSION` | all pinned in `components/versions.env`; installed with `helm upgrade --install --repo … --version …`, no `helm repo add` |
+| Chart | `rustfs` from `RUSTFS_CHART_REPO`, version `RUSTFS_CHART_VERSION` | pinned in `components/versions.env`; installed with `helm upgrade --install --repo … --version … --history-max 5`, no `helm repo add` |
+| Images | `image.rustfs.tag=$RUSTFS_APP_VERSION`, `image.initImage.tag=$BUSYBOX_VERSION` | passed with `--set` from `components/versions.env`, so a chart bump cannot silently change the app or pull a floating tag |
 | Deploy mode | `mode.standalone.enabled: true`, `mode.distributed.enabled: false`, `replicaCount: 1` | the chart defaults to distributed with 4 replicas; one pod and one data volume is enough for a single-node playground |
 | Persistence | `storageclass.name: standard`, `dataStorageSize: 10Gi`, `logStorageSize: 256Mi` | the chart default class `local-path` does not exist on Minikube, so its PVCs would stay `Pending` |
-| Resources | requests `cpu 50m / memory 128Mi`, limit `memory 256Mi` | the dev-tier budget for storage |
+| Resources | requests `cpu 50m / memory 256Mi`, limit `memory 768Mi` | measured: a 40 MiB upload OOM-killed RustFS at 256Mi; three concurrent 64 MiB uploads peak at ~380 MiB |
+| ServiceAccount | `serviceAccount.automount: false` | RustFS never talks to the Kubernetes API |
 | Ingress | `ingress.enabled: false` | the chart enables an nginx Ingress by default; there is no ingress controller and access is via Services |
 | Ports | S3 API `9000`, console `9001` | on both `rustfs` and `rustfs-svc` |
 | Credentials | `secret.existingSecret: rustfs-root` | see [Credentials](#credentials); `values.yaml` holds no credential |
@@ -85,6 +87,12 @@ name: the chart needs the `RUSTFS_*` names, while consumers reference
 `access-key` / `secret-key` with `secretKeyRef`. Both hold the same values. The
 chart refuses empty credentials and the well-known `rustfsadmin` default.
 
+`.env` values are parsed strictly (`KEY=value`, optionally quoted; no `export`,
+no inline comments), so the stored credential is exactly what was written.
+Rotation is a re-deploy: `envFrom` is read only at container start, so when the
+`rustfs-root` Secret's resourceVersion changes, the deploy runs
+`kubectl rollout restart deploy/rustfs` and waits for it.
+
 ### Bucket layout
 
 | Bucket | Holds |
@@ -108,8 +116,10 @@ flowchart LR
 The Job's pod template has an `__AWSCLI_IMAGE__` placeholder; the deploy step
 replaces it with `AWSCLI_IMAGE` from `components/versions.env`. Jobs are
 immutable, so every deploy deletes the previous Job, applies a new one and waits
-for completion. A failed Job makes the deploy print the Job logs and exit
-non-zero. Existing buckets are only checked, never recreated, so their data is
+for its `Complete` or `Failed` condition, whichever comes first. A failed Job
+makes the deploy print the Job logs and exit non-zero. The Job runs as a
+non-root user with a read-only root filesystem, no service-account token, and
+its own requests and memory limit. Existing buckets are only checked, never recreated, so their data is
 untouched.
 
 ## Durability model
@@ -117,7 +127,8 @@ untouched.
 RustFS's object data lives on the `rustfs-data` PVC, provisioned by the
 `standard` StorageClass, not in the pod. The pod is disposable: if it is deleted
 or rescheduled, the same PVC re-binds to the replacement and all objects remain
-intact. This is what lets every layer above treat RustFS as durable storage.
+intact, including after a SIGKILL or OOM kill of the container (tested with a
+32 MiB object). This is what lets every layer above treat RustFS as durable storage.
 Deleting the PVC, the release or the Minikube profile deletes the data.
 
 ## Inputs consumed / outputs produced
