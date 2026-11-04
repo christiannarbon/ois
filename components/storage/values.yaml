@@ -7,10 +7,6 @@ mode:
   distributed:
     enabled: false
 
-image:
-  rustfs:
-    tag: ""
-
 secret:
   existingSecret: rustfs-root
 
@@ -23,9 +19,9 @@ storageclass:
 resources:
   requests:
     cpu: 50m
-    memory: 128Mi
-  limits:
     memory: 256Mi
+  limits:
+    memory: 768Mi
 
 service:
   type: ClusterIP
@@ -36,3 +32,6 @@ service:
 
 ingress:
   enabled: false
+
+serviceAccount:
+  automount: false
