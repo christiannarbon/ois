@@ -115,6 +115,8 @@ __pycache__/
 values-secret.yaml
 .DS_Store
 .claude/
+/bin/
+/.ois/
 
 
 # Rope project settings

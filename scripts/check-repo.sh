@@ -28,8 +28,8 @@ if run_tool yamllint "$YAMLLINT_IMAGE" -c .yamllint.yaml components/; then pass 
 bad="$(grep -nvE '^[[:space:]]*(#|$)' components/versions.env | grep -vE '^[0-9]+:[A-Z][A-Z0-9_]*="[^"$`]*"$' || true)"
 if [[ -z "$bad" ]]; then pass "versions.env format"; else fail "versions.env format:"$'\n'"$bad"; fi
 
-ids="$(grep -rnE --exclude=check-repo.sh 'OPEN-ICE|DR-[0-9]' docs/tech docs/user components scripts || true)"
-if [[ -z "$ids" ]]; then pass "no plan ids in docs, components, scripts"; else fail "plan ids found:"$'\n'"$ids"; fi
+ids="$(grep -rnE --exclude=check-repo.sh 'OPEN-ICE|DR-[0-9]' docs/tech docs/user components scripts cmd internal || true)"
+if [[ -z "$ids" ]]; then pass "no plan ids in docs, components, scripts, code"; else fail "plan ids found:"$'\n'"$ids"; fi
 
 broken_links() {
   python3 -I - <<'PY'
