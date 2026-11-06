@@ -113,3 +113,30 @@ func TestRunnerFollowsDryRun(t *testing.T) {
 		t.Errorf("verbose log = %q", log.String())
 	}
 }
+
+func TestSpecPath(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := filepath.Join(dir, "ois.yaml")
+	if err := os.WriteFile(spec, []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+
+	for _, file := range []string{"", "../ois.yaml", ".."} {
+		g := &GlobalOptions{File: file}
+		got, err := g.SpecPath()
+		if err != nil {
+			t.Fatalf("File=%q: %v", file, err)
+		}
+		if got != spec {
+			t.Errorf("File=%q: SpecPath = %q, want %q", file, got, spec)
+		}
+	}
+}
