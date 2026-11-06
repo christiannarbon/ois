@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/christiannarbon/ois/internal/execx"
 )
 
 // GlobalOptions are the flags shared by every command.
@@ -19,6 +21,14 @@ type GlobalOptions struct {
 	Yes     bool   // skip confirmation prompts
 	Stdout  io.Writer
 	Stderr  io.Writer
+}
+
+// Runner returns the execx.Runner selected by the global flags.
+func (g *GlobalOptions) Runner() execx.Runner {
+	if g.DryRun {
+		return execx.NewDryRun(g.Stderr)
+	}
+	return execx.NewReal(g.Stderr, g.Verbose)
 }
 
 // NewRootCommand builds the full command tree. Tests call it with buffers.
