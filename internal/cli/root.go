@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/christiannarbon/ois/internal/execx"
+	"github.com/christiannarbon/ois/internal/project"
 )
 
 // GlobalOptions are the flags shared by every command.
@@ -29,6 +30,15 @@ func (g *GlobalOptions) Runner() execx.Runner {
 		return execx.NewDryRun(g.Stderr)
 	}
 	return execx.NewReal(g.Stderr, g.Verbose)
+}
+
+// SpecPath resolves the ois.yaml this invocation refers to.
+func (g *GlobalOptions) SpecPath() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return project.Resolve(g.File, cwd)
 }
 
 // NewRootCommand builds the full command tree. Tests call it with buffers.
