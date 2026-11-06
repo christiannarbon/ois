@@ -2,11 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/christiannarbon/ois/internal/execx"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -77,5 +82,34 @@ func TestUnknownCommandExitsWithError(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "unknown command") {
 		t.Fatalf("stderr = %q", errBuf.String())
+	}
+}
+
+func TestRunnerFollowsDryRun(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "marker")
+	cmd := execx.Cmd{Name: "touch", Args: []string{marker}}
+
+	var dry bytes.Buffer
+	g := &GlobalOptions{DryRun: true, Stderr: &dry}
+	if _, err := g.Runner().Run(context.Background(), cmd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("--dry-run executed the command")
+	}
+	if !strings.HasPrefix(dry.String(), "+ touch ") {
+		t.Errorf("dry-run output = %q", dry.String())
+	}
+
+	var log bytes.Buffer
+	g = &GlobalOptions{Verbose: true, Stderr: &log}
+	if _, err := g.Runner().Run(context.Background(), cmd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("real runner did not run the command: %v", err)
+	}
+	if !strings.HasPrefix(log.String(), "+ touch ") {
+		t.Errorf("verbose log = %q", log.String())
 	}
 }
