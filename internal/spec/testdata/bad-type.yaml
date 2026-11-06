@@ -1,0 +1,8 @@
+apiVersion: ois/v1alpha1
+project: demo
+
+cluster:
+  size: custom
+  cpus: four
+components:
+  storage: {}

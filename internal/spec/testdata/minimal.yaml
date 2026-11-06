@@ -1,0 +1,3 @@
+apiVersion: ois/v1alpha1
+project: demo
+components: {storage: {}}

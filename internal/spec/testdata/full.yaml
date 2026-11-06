@@ -1,0 +1,26 @@
+# every block this version knows about
+
+apiVersion: ois/v1alpha1
+project: demo
+
+cluster:
+  size: custom
+  cpus: 4
+  memory: 8192
+  disk: 40g
+
+components:
+  storage: {}
+  kafka: {}
+  catalog: {}
+  flink: {}
+  trino: {}
+
+streams:
+  - name: clicks
+  - name: orders
+
+maintenance:
+  - table: lake.clicks
+
+samples: [clickstream]
