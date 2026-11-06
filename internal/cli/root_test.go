@@ -24,6 +24,9 @@ func TestVersionCommand(t *testing.T) {
 	if !strings.HasPrefix(out.String(), "ois dev (commit none, built unknown)") {
 		t.Fatalf("unexpected output %q", out.String())
 	}
+	if !strings.Contains(out.String(), "KUBERNETES_VERSION") {
+		t.Fatalf("pinned versions missing from %q", out.String())
+	}
 }
 
 func TestGlobalFlags(t *testing.T) {
@@ -138,5 +141,19 @@ func TestSpecPath(t *testing.T) {
 		if got != spec {
 			t.Errorf("File=%q: SpecPath = %q, want %q", file, got, spec)
 		}
+	}
+}
+
+func TestVersionListsPins(t *testing.T) {
+	var out bytes.Buffer
+	pins := map[string]string{"B_VERSION": "2.0", "A_LONGER_VERSION": "1.0", "UNPINNED": ""}
+	if err := writeVersion(&out, pins); err != nil {
+		t.Fatal(err)
+	}
+	want := "ois dev (commit none, built unknown)\n\npinned versions:\n" +
+		"  A_LONGER_VERSION  1.0\n" +
+		"  B_VERSION         2.0\n"
+	if out.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
 }

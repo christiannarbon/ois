@@ -164,6 +164,7 @@ kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f -
 
 Component assets live under `components/`, one directory per component. Today it holds:
 - `components/versions.env`: Pinned chart, image and jar versions.
+- `components/*.go`: Go package that embeds these assets into the `ois` binary; import it as `assets`.
 - `components/namespaces.yaml`: Per-component Namespace manifest.
 - `components/cluster/`: Local Kubernetes cluster definition & provider config.
 - `components/storage/`: Object storage (RustFS) Helm values and secret overlay template.
