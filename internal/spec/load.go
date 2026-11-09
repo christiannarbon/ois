@@ -85,9 +85,6 @@ func Parse(data []byte, file string) (*Spec, error) {
 	return s, nil
 }
 
-// applyDefaults fills in values the user may leave out.
-func applyDefaults(s *Spec) {}
-
 func recordPositions(n *yaml.Node, path string, pos map[string]int) {
 	switch n.Kind {
 	case yaml.MappingNode:
