@@ -1,0 +1,22 @@
+apiVersion: ois/v1alpha1
+project: demo
+components:
+  storage: {}
+  kafka: {}
+samples: [test-sample]
+profiles:
+  prod:
+    target: kubernetes
+    context: prod-admin
+    namespace_prefix: lake-
+    images:
+      registry: ghcr.io/me
+      pull_secret: ghcr-pull
+    components:
+      kafka: {}
+      trino:
+  staging:
+    target: kubernetes
+    context: staging-admin
+    tier: dev
+    secrets: generate
