@@ -11,6 +11,7 @@ import (
 
 	"github.com/christiannarbon/ois/internal/execx"
 	"github.com/christiannarbon/ois/internal/project"
+	"github.com/christiannarbon/ois/internal/spec"
 )
 
 // GlobalOptions are the flags shared by every command.
@@ -41,6 +42,15 @@ func (g *GlobalOptions) SpecPath() (string, error) {
 	return project.Resolve(g.File, cwd)
 }
 
+// LoadSpec resolves, loads and validates the project spec.
+func (g *GlobalOptions) LoadSpec() (*spec.Spec, error) {
+	path, err := g.SpecPath()
+	if err != nil {
+		return nil, err
+	}
+	return spec.LoadAndValidate(path)
+}
+
 // NewRootCommand builds the full command tree. Tests call it with buffers.
 func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	g := &GlobalOptions{Stdout: stdout, Stderr: stderr}
@@ -60,6 +70,7 @@ func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	pf.BoolVar(&g.Yes, "yes", false, "answer yes to confirmation prompts (for CI)")
 	root.AddCommand(
 		newVersionCommand(g),
+		newValidateCommand(g),
 	)
 	return root
 }
@@ -87,6 +98,9 @@ func (e *ExitCodeError) Error() string {
 
 func (e *ExitCodeError) Unwrap() error { return e.Err }
 
+// errSilent exits 1 without printing; the command already reported the problem.
+var errSilent = errors.New("error already reported")
+
 // Execute runs the CLI and returns the process exit code.
 func Execute() int {
 	return run(NewRootCommand(os.Stdout, os.Stderr), os.Stderr)
@@ -97,13 +111,28 @@ func run(root *cobra.Command, stderr io.Writer) int {
 	if err == nil {
 		return ExitOK
 	}
+	if errors.Is(err, errSilent) {
+		return ExitError
+	}
 	var ec *ExitCodeError
 	if errors.As(err, &ec) {
 		if ec.Err != nil {
-			fmt.Fprintln(stderr, "error:", ec.Err)
+			writeError(stderr, ec.Err)
 		}
 		return ec.Code
 	}
-	fmt.Fprintln(stderr, "error:", err)
+	writeError(stderr, err)
 	return ExitError
+}
+
+// writeError prints spec problems as-is, one "ois.yaml:<line>: ..." per line, so every
+// command reports them the same way; anything else gets an "error:" prefix.
+func writeError(w io.Writer, err error) {
+	var de *spec.DecodeError
+	var ve *spec.ValidationError
+	if errors.As(err, &de) || errors.As(err, &ve) {
+		fmt.Fprintln(w, err)
+		return
+	}
+	fmt.Fprintln(w, "error:", err)
 }
