@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/christiannarbon/ois/internal/project"
 	"github.com/christiannarbon/ois/internal/spec"
 )
+
+func init() { spec.RegisterSample("test-sample") }
 
 // runValidate writes yml (if non-empty) to <tmp>/ois.yaml and runs ois with args.
 func runValidate(t *testing.T, yml string, args ...string) (code int, stdout, stderr string, dir string) {
@@ -44,6 +47,8 @@ func TestValidateValid(t *testing.T) {
 	want := "spec:        " + filepath.Join(dir, "ois.yaml") + "\n" +
 		"project:     demo  (cluster profile ois-demo)\n" +
 		"cluster:     lean\n" +
+		"profile:     dev  (target minikube, context ois-demo, tier dev)\n" +
+		"profiles:    dev\n" +
 		"components:  storage\n" +
 		"streams:     0\n" +
 		"samples:     none\n" +
@@ -124,6 +129,90 @@ func TestWriteError(t *testing.T) {
 		writeError(&buf, tt.err)
 		if buf.String() != tt.want {
 			t.Errorf("writeError(%v) = %q, want %q", tt.err, buf.String(), tt.want)
+		}
+	}
+}
+
+func TestValidateProfileView(t *testing.T) {
+	yml := `apiVersion: ois/v1alpha1
+project: demo
+components:
+  storage: {}
+  catalog: {}
+samples: [test-sample]
+profiles:
+  prod:
+    target: kubernetes
+    context: prod-admin
+    components:
+      trino:
+      storage:
+        external:
+          endpoint: https://s3.example.com
+          credentials_secret: s3-creds
+          buckets: {warehouse: wh, flink: fl}
+      catalog:
+        external:
+          uri: https://polaris.example.com
+          warehouse: lake
+          credentials_secrets: {trino: trino-cat}
+`
+	code, out, errOut, _ := runValidate(t, yml, "-f", "$DIR", "--profile", "prod", "validate")
+	if code != ExitOK {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+	for _, want := range []string{
+		"profile:     prod  (target kubernetes, context prod-admin, tier production)\n",
+		"profiles:    dev, prod\n",
+		"components:  storage (external), catalog (external), trino\n",
+		"samples:     none\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestValidateUnknownProfile(t *testing.T) {
+	yml := "apiVersion: ois/v1alpha1\nproject: demo\ncomponents: {storage: {}}\nprofiles:\n  prod: {target: kubernetes, context: c}\n"
+	code, _, errOut, _ := runValidate(t, yml, "-f", "$DIR", "--profile", "prd", "validate")
+	if code != ExitError || errOut != "error: unknown profile \"prd\" (available: dev, prod)\n" {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+}
+
+func TestValidateChecksOtherProfiles(t *testing.T) {
+	yml := "apiVersion: ois/v1alpha1\nproject: demo\ncomponents: {storage: {}}\nprofiles:\n  prod:\n    target: kubernetes\n"
+	code, _, errOut, _ := runValidate(t, yml, "-f", "$DIR", "validate")
+	want := "ois.yaml:5: profiles.prod.context: context is required for target: kubernetes (ois never uses your current context)\n"
+	if code != ExitError || errOut != want {
+		t.Fatalf("code %d stderr %q, want %q", code, errOut, want)
+	}
+}
+
+func TestGlobalResolve(t *testing.T) {
+	_, _, _, dir := runValidate(t, "apiVersion: ois/v1alpha1\nproject: demo\ncomponents: {storage: {}}\n")
+	r, err := (&GlobalOptions{File: dir, Profile: "dev"}).Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Profile.Name != "dev" || !r.Enabled("storage") {
+		t.Fatalf("got %+v", r.Profile)
+	}
+}
+
+func TestMinikubeContextMatchesProjectContextName(t *testing.T) {
+	for _, name := range []string{"demo", "my-lake", "a1"} {
+		s, err := spec.Parse([]byte("apiVersion: ois/v1alpha1\nproject: "+name+"\ncomponents: {storage: {}}\n"), "ois.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := s.Resolve(spec.DefaultProfile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := project.ContextName(name); r.Profile.Context != want {
+			t.Errorf("context %q, want project.ContextName %q", r.Profile.Context, want)
 		}
 	}
 }

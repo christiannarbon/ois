@@ -1,0 +1,12 @@
+apiVersion: ois/v1alpha1
+project: demo
+components:
+  storage: {}
+  kafka: {}
+profiles:
+  prod:
+    target: kubernetes
+    context: prod-admin
+    components:
+      kafka:
+        replicas: 3

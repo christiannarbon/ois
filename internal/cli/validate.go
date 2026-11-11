@@ -23,7 +23,12 @@ func newValidateCommand(g *GlobalOptions) *cobra.Command {
 				writeError(g.Stderr, err)
 				return errSilent
 			}
-			return writePlan(g.Stdout, s)
+			r, err := s.Resolve(g.Profile)
+			if err != nil {
+				writeError(g.Stderr, err)
+				return errSilent
+			}
+			return writePlan(g.Stdout, r)
 		},
 	}
 }
@@ -39,19 +44,29 @@ func installOrder(s *spec.Spec) []string {
 	return out
 }
 
-func writePlan(w io.Writer, s *spec.Spec) error {
+func writePlan(w io.Writer, r *spec.Resolved) error {
 	samples := "none"
-	if len(s.Samples) > 0 {
-		samples = strings.Join(s.Samples, ", ")
+	if len(r.Samples) > 0 {
+		samples = strings.Join(r.Samples, ", ")
 	}
+	components := installOrder(r.Spec)
+	for i, name := range components {
+		if r.Profile.IsExternal(name) {
+			components[i] = name + " (external)"
+		}
+	}
+	p := r.Profile
 	_, err := fmt.Fprintf(w, `spec:        %s
 project:     %s  (cluster profile %s)
 cluster:     %s
+profile:     %s  (target %s, context %s, tier %s)
+profiles:    %s
 components:  %s
 streams:     %d
 samples:     %s
 ✓ %s is valid
-`, s.File, s.Project, project.ProfileName(s.Project), s.Cluster.Size,
-		strings.Join(installOrder(s), ", "), len(s.Streams), samples, filepath.Base(s.File))
+`, r.File, r.Project, project.ProfileName(r.Project), r.Cluster.Size,
+		p.Name, p.Target, p.Context, p.Tier, strings.Join(r.ProfileNames(), ", "),
+		strings.Join(components, ", "), len(r.Streams), samples, filepath.Base(r.File))
 	return err
 }

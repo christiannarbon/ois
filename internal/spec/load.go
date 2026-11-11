@@ -81,6 +81,9 @@ func Parse(data []byte, file string) (*Spec, error) {
 	s.File = abs
 	s.Dir = filepath.Dir(abs)
 	s.pos = pos
+	if comps := mappingValue(doc.Content[0], "components"); comps != nil && comps.Kind == yaml.MappingNode {
+		s.componentsNode = comps
+	}
 	applyDefaults(s)
 	return s, nil
 }
@@ -107,22 +110,39 @@ func recordPositions(n *yaml.Node, path string, pos map[string]int) {
 }
 
 // enableNullComponents turns "components:\n  storage:" into storage: {} so a bare key
-// enables the component instead of decoding to a nil pointer.
+// enables the component instead of decoding to a nil pointer. It does this for the
+// top-level components and for every profiles.<name>.components.
 func enableNullComponents(root *yaml.Node) {
-	if root.Kind != yaml.MappingNode {
+	nullsToMappings(mappingValue(root, "components"))
+	if profiles := mappingValue(root, "profiles"); profiles != nil && profiles.Kind == yaml.MappingNode {
+		for i := 1; i < len(profiles.Content); i += 2 {
+			nullsToMappings(mappingValue(profiles.Content[i], "components"))
+		}
+	}
+}
+
+func nullsToMappings(comps *yaml.Node) {
+	if comps == nil || comps.Kind != yaml.MappingNode {
 		return
 	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value != "components" || root.Content[i+1].Kind != yaml.MappingNode {
-			continue
-		}
-		comps := root.Content[i+1]
-		for j := 1; j < len(comps.Content); j += 2 {
-			if v := comps.Content[j]; v.Tag == "!!null" {
-				comps.Content[j] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Line: v.Line, Column: v.Column}
-			}
+	for j := 1; j < len(comps.Content); j += 2 {
+		if v := comps.Content[j]; v.Tag == "!!null" {
+			comps.Content[j] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Line: v.Line, Column: v.Column}
 		}
 	}
+}
+
+// mappingValue returns the value node of key in mapping n, or nil.
+func mappingValue(n *yaml.Node, key string) *yaml.Node {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == key {
+			return n.Content[i+1]
+		}
+	}
+	return nil
 }
 
 var (

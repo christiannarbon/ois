@@ -1,0 +1,34 @@
+apiVersion: ois/v1alpha1
+project: demo
+components:
+  storage: {}
+  kafka: {}
+  catalog: {}
+  flink: {}
+  trino: {}
+profiles:
+  prod:
+    target: kubernetes
+    context: prod-admin
+    components:
+      storage:
+        external:
+          endpoint: https://s3.example.com
+          region: eu-west-1
+          path_style: true
+          credentials_secret: s3-creds
+          buckets:
+            warehouse: lake-warehouse
+            flink: lake-flink
+      kafka:
+        external:
+          bootstrap: kafka.example.com:9093
+          security: SASL_SSL
+          credentials_secret: kafka-creds
+      catalog:
+        external:
+          uri: https://polaris.example.com/api/catalog
+          warehouse: lake
+          credentials_secrets:
+            flink: flink-catalog
+            trino: trino-catalog

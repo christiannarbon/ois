@@ -2,6 +2,7 @@ package spec
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -74,23 +75,68 @@ func sortedRules() []Rule {
 }
 
 // Validate runs every rule in registration-name order and returns *ValidationError or nil.
+// It checks the spec as written and then every profile's resolved view, so a broken
+// profile is caught whichever profile is active. A problem shared by the top level and a
+// profile is reported once; one that only a profile has names that profile.
 func (s *Spec) Validate() error {
-	var errs []FieldError
-	for _, r := range sortedRules() {
-		for _, fe := range r.Check(s) {
-			if fe.Line == 0 {
-				fe.Line = s.nearestLine(fe.Path)
-			}
-			errs = append(errs, fe)
-		}
+	errs := runRules(s)
+	top := map[[2]string]bool{}
+	for _, fe := range errs {
+		top[[2]string{fe.Path, fe.Msg}] = true
 	}
+	for _, name := range s.ProfileNames() {
+		if p, ok := s.Profiles[name]; ok {
+			errs = append(errs, checkProfile(s, name, p)...)
+		}
+		r, err := s.Resolve(name)
+		if err != nil {
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				return err
+			}
+			errs = append(errs, ve.Errors...)
+			continue
+		}
+		for _, fe := range runRules(r.Spec) {
+			if !top[[2]string{fe.Path, fe.Msg}] {
+				fe.Msg += fmt.Sprintf(" (profile %s)", name)
+				errs = append(errs, fe)
+			}
+		}
+		errs = append(errs, checkExternal(r)...)
+	}
+	errs = dedupe(errs)
 	if len(errs) == 0 {
 		return nil
 	}
+	return s.validationError(errs)
+}
+
+func runRules(s *Spec) []FieldError {
+	var errs []FieldError
+	for _, r := range sortedRules() {
+		errs = append(errs, r.Check(s)...)
+	}
+	return errs
+}
+
+func dedupe(errs []FieldError) []FieldError {
+	seen := map[[2]string]bool{}
+	out := errs[:0]
+	for _, fe := range errs {
+		k := [2]string{fe.Path, fe.Msg}
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, fe)
+		}
+	}
+	return out
+}
+
+func sortFieldErrors(errs []FieldError) {
 	slices.SortStableFunc(errs, func(a, b FieldError) int {
 		return cmp.Or(cmp.Compare(a.Line, b.Line), cmp.Compare(a.Path, b.Path))
 	})
-	return &ValidationError{File: s.File, Errors: errs}
 }
 
 // nearestLine returns the line of path or, failing that, of its closest recorded parent:

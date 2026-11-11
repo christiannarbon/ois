@@ -4,20 +4,23 @@ package spec
 import (
 	"fmt"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 )
 
 const APIVersion = "ois/v1alpha1"
 
 type Spec struct {
-	APIVersion  string        `yaml:"apiVersion"`
-	Project     string        `yaml:"project"`
-	Cluster     Cluster       `yaml:"cluster"`
-	Components  Components    `yaml:"components"`
-	Streams     []Stream      `yaml:"streams,omitempty"`
-	Transform   *Transform    `yaml:"transform,omitempty"`
-	Maintenance []Maintenance `yaml:"maintenance,omitempty"`
-	Dashboards  *Dashboards   `yaml:"dashboards,omitempty"`
-	Samples     []string      `yaml:"samples,omitempty"`
+	APIVersion  string             `yaml:"apiVersion"`
+	Project     string             `yaml:"project"`
+	Cluster     Cluster            `yaml:"cluster"`
+	Components  Components         `yaml:"components"`
+	Streams     []Stream           `yaml:"streams,omitempty"`
+	Transform   *Transform         `yaml:"transform,omitempty"`
+	Maintenance []Maintenance      `yaml:"maintenance,omitempty"`
+	Dashboards  *Dashboards        `yaml:"dashboards,omitempty"`
+	Samples     []string           `yaml:"samples,omitempty"`
+	Profiles    map[string]Profile `yaml:"profiles,omitempty"`
 
 	// Dir is the absolute directory containing ois.yaml. Relative paths resolve against it.
 	Dir string `yaml:"-"`
@@ -25,6 +28,8 @@ type Spec struct {
 	File string `yaml:"-"`
 	// pos maps a field path ("components.storage", "streams[0].name") to its line.
 	pos map[string]int
+	// componentsNode is the top-level components mapping, nulls already turned into {}.
+	componentsNode *yaml.Node
 }
 
 type Cluster struct {
