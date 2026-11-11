@@ -51,6 +51,15 @@ func (g *GlobalOptions) LoadSpec() (*spec.Spec, error) {
 	return spec.LoadAndValidate(path)
 }
 
+// Resolve loads, validates and resolves the spec for --profile.
+func (g *GlobalOptions) Resolve() (*spec.Resolved, error) {
+	s, err := g.LoadSpec()
+	if err != nil {
+		return nil, err
+	}
+	return s.Resolve(g.Profile)
+}
+
 // NewRootCommand builds the full command tree. Tests call it with buffers.
 func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	g := &GlobalOptions{Stdout: stdout, Stderr: stderr}
