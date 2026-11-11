@@ -26,7 +26,7 @@ func Load(path string) (*Spec, error) {
 
 // DecodeError is a decode problem tied to a line.
 type DecodeError struct {
-	File string
+	File string // shown as its base name
 	Line int
 	Path string // best-effort field path, e.g. "components.stroage"
 	Msg  string
@@ -34,7 +34,7 @@ type DecodeError struct {
 
 func (e *DecodeError) Error() string {
 	var b strings.Builder
-	b.WriteString(e.File)
+	b.WriteString(filepath.Base(e.File))
 	if e.Line > 0 {
 		fmt.Fprintf(&b, ":%d", e.Line)
 	}
@@ -56,7 +56,7 @@ func Parse(data []byte, file string) (*Spec, error) {
 		return nil, convertError(err, file, nil)
 	}
 	if doc.Kind == 0 || len(doc.Content) == 0 {
-		return nil, fmt.Errorf("%s is empty", file)
+		return nil, fmt.Errorf("%s is empty", filepath.Base(file))
 	}
 	pos := map[string]int{}
 	recordPositions(doc.Content[0], "", pos)
