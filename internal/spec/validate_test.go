@@ -108,7 +108,7 @@ func TestRuleFailures(t *testing.T) {
 		{"dashboards-require", header + storage + "dashboards: {}\n", "dashboards", "needs components.superset"},
 		{"samples-known unknown", header + storage + "samples: [nope]\n", "samples[0]", `unknown sample "nope" (known: test-sample)`},
 		{"samples-known duplicate", header + storage + "samples: [test-sample, test-sample]\n", "samples[1]", "duplicate sample"},
-		{"storage-required", header + "components: {kafka: {}}\n", "components", "storage must be enabled; kafka store data in it"},
+		{"storage-required", header + "components: {kafka: {}}\n", "components", "storage must be enabled; every other component stores its data in it"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.rule, func(t *testing.T) {
@@ -255,5 +255,17 @@ func TestValidateLoadAndValidate(t *testing.T) {
 func TestValidateKnownSamplesSorted(t *testing.T) {
 	if got := KnownSamples(); !slices.IsSorted(got) || !slices.Contains(got, testSample) {
 		t.Fatalf("KnownSamples() = %v", got)
+	}
+}
+
+func TestProfileStorageRequiredReportedOnce(t *testing.T) {
+	yml := header + "components: {kafka: {}}\nprofiles:\n  prod:\n    target: kubernetes\n    context: c\n    components:\n      trino: {}\n"
+	s, err := Parse([]byte(yml), "ois.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs := validationErrors(t, s.Validate())
+	if len(errs) != 1 || errs[0].Path != "components" || strings.Contains(errs[0].Msg, "(profile") {
+		t.Fatalf("errors = %+v, want one unlabelled storage error", errs)
 	}
 }
