@@ -28,7 +28,7 @@ func newValidateCommand(g *GlobalOptions) *cobra.Command {
 				writeError(g.Stderr, err)
 				return errSilent
 			}
-			return writePlan(g.Stdout, r)
+			return writePlan(g.Stdout, r, s.ProfileNames())
 		},
 	}
 }
@@ -44,7 +44,7 @@ func installOrder(s *spec.Spec) []string {
 	return out
 }
 
-func writePlan(w io.Writer, r *spec.Resolved) error {
+func writePlan(w io.Writer, r *spec.Resolved, profiles []string) error {
 	samples := "none"
 	if len(r.Samples) > 0 {
 		samples = strings.Join(r.Samples, ", ")
@@ -66,7 +66,7 @@ streams:     %d
 samples:     %s
 ✓ %s is valid
 `, r.File, r.Project, project.ProfileName(r.Project), r.Cluster.Size,
-		p.Name, p.Target, p.Context, p.Tier, strings.Join(r.ProfileNames(), ", "),
+		p.Name, p.Target, p.Context, p.Tier, strings.Join(profiles, ", "),
 		strings.Join(components, ", "), len(r.Streams), samples, filepath.Base(r.File))
 	return err
 }
