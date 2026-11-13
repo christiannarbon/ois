@@ -93,8 +93,9 @@ func (p ResolvedProfile) IsExternal(component string) bool {
 	return false
 }
 
-// Resolved is the spec as one profile sees it. Its embedded *Spec is a copy whose
-// Components are the merged view and whose Samples are cleared on kubernetes targets.
+// Resolved is the spec as one profile sees it. Its embedded *Spec is a copy that shares
+// nothing with the loaded spec: Components are the merged view, Samples are cleared on
+// kubernetes targets, Profiles are empty and Resolve on it is an error.
 // Everything downstream (registry, Render, Deploy) uses Resolved, never Spec.Profiles.
 type Resolved struct {
 	*Spec
@@ -122,6 +123,9 @@ var externalComponents = []string{"storage", "kafka", "catalog"}
 // Merge/decode problems are returned as *ValidationError with lines inside
 // profiles.<name>.components.
 func (s *Spec) Resolve(name string) (*Resolved, error) {
+	if s.view != "" {
+		return nil, fmt.Errorf("spec is already resolved for profile %q", s.view)
+	}
 	p, declared := s.Profiles[name]
 	if !declared && name != DefaultProfile {
 		return nil, fmt.Errorf("unknown profile %q (available: %s)", name, strings.Join(s.ProfileNames(), ", "))
@@ -166,12 +170,12 @@ func (s *Spec) Resolve(name string) (*Resolved, error) {
 		return nil, s.validationError(errs)
 	}
 
-	cp := *s
+	cp := s.viewCopy(name)
 	cp.Components = comps
 	if rp.Target == TargetKubernetes {
 		cp.Samples = nil
 	}
-	return &Resolved{Spec: &cp, Profile: rp}, nil
+	return &Resolved{Spec: cp, Profile: rp}, nil
 }
 
 func resolveProfile(name string, p Profile, project string) ResolvedProfile {
