@@ -4,6 +4,7 @@ package spec
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +22,8 @@ type Spec struct {
 	Dashboards  *Dashboards        `yaml:"dashboards,omitempty"`
 	Samples     []string           `yaml:"samples,omitempty"`
 	Profiles    map[string]Profile `yaml:"profiles,omitempty"`
+	// view is the profile this spec was resolved for; empty for the spec as loaded.
+	view string
 
 	// Dir is the absolute directory containing ois.yaml. Relative paths resolve against it.
 	Dir string `yaml:"-"`
@@ -66,6 +69,27 @@ type Maintenance struct {
 	Table string `yaml:"table"`
 }
 type Dashboards struct{}
+
+// viewCopy returns a copy of s for one profile's view that shares no exported slice,
+// map or pointer with s. Profiles are dropped: a view never looks at other profiles.
+// New reference fields on Spec must be copied here (TestResolvedSharesNothing checks).
+func (s *Spec) viewCopy(profile string) *Spec {
+	cp := *s
+	cp.view = profile
+	cp.Profiles = nil
+	cp.Streams = slices.Clone(s.Streams)
+	cp.Maintenance = slices.Clone(s.Maintenance)
+	cp.Samples = slices.Clone(s.Samples)
+	if s.Transform != nil {
+		t := *s.Transform
+		cp.Transform = &t
+	}
+	if s.Dashboards != nil {
+		d := *s.Dashboards
+		cp.Dashboards = &d
+	}
+	return &cp
+}
 
 // Line returns the 1-based line of a field path, or 0 if unknown.
 func (s *Spec) Line(path string) int { return s.pos[path] }
