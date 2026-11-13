@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/christiannarbon/ois/internal/cluster"
 	"github.com/christiannarbon/ois/internal/execx"
 	"github.com/christiannarbon/ois/internal/project"
 	"github.com/christiannarbon/ois/internal/spec"
@@ -58,6 +60,19 @@ func (g *GlobalOptions) Resolve() (*spec.Resolved, error) {
 		return nil, err
 	}
 	return s.Resolve(g.Profile)
+}
+
+// Target resolves the spec for --profile and guards that profile's cluster context.
+func (g *GlobalOptions) Target(ctx context.Context) (*spec.Resolved, cluster.Target, error) {
+	r, err := g.Resolve()
+	if err != nil {
+		return nil, cluster.Target{}, err
+	}
+	t, err := cluster.RequireContext(ctx, g.Runner(), r.Project, r.Profile)
+	if err != nil {
+		return nil, cluster.Target{}, err
+	}
+	return r, t, nil
 }
 
 // NewRootCommand builds the full command tree. Tests call it with buffers.
