@@ -171,11 +171,12 @@ func unknownSampleMsg(name string, known []string) string {
 }
 
 func checkStorageRequired(s *Spec) []FieldError {
-	enabled := s.enabledComponents()
-	if len(enabled) == 0 || s.Enabled("storage") {
+	// The message does not list the enabled components, so a profile that adds one
+	// reports the same error as the top level instead of a second one.
+	if len(s.enabledComponents()) == 0 || s.Enabled("storage") {
 		return nil
 	}
-	return []FieldError{{Path: "components", Msg: fmt.Sprintf("storage must be enabled; %s store data in it", strings.Join(enabled, ", "))}}
+	return []FieldError{{Path: "components", Msg: "storage must be enabled; every other component stores its data in it"}}
 }
 
 // require returns one error at path for each named component that is not enabled.
