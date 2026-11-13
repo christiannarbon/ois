@@ -174,10 +174,19 @@ func (s *Spec) Resolve(name string) (*Resolved, error) {
 	return &Resolved{Spec: &cp, Profile: rp}, nil
 }
 
+// defaultTarget is minikube for dev and kubernetes for every other profile: dev is the
+// only profile with a local cluster, so no two profiles can share one.
+func defaultTarget(name string) string {
+	if name == DefaultProfile {
+		return TargetMinikube
+	}
+	return TargetKubernetes
+}
+
 func resolveProfile(name string, p Profile, project string) ResolvedProfile {
 	rp := ResolvedProfile{
 		Name:            name,
-		Target:          cmp.Or(p.Target, TargetMinikube),
+		Target:          cmp.Or(p.Target, defaultTarget(name)),
 		Tier:            p.Tier,
 		NamespacePrefix: p.NamespacePrefix,
 		Secrets:         p.Secrets,

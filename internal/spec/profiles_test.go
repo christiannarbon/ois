@@ -202,15 +202,15 @@ func TestResolveKafkaSecurityDefault(t *testing.T) {
 }
 
 func TestProfileExternalRules(t *testing.T) {
-	k8s := "    target: kubernetes\n    context: c\n"
-	base := header + "components: {storage: {}, kafka: {}, catalog: {}, flink: {}, trino: {}, dagster: {}}\nprofiles:\n  prod:\n"
+	k8s := "  prod:\n    target: kubernetes\n    context: c\n"
+	base := header + "components: {storage: {}, kafka: {}, catalog: {}, flink: {}, trino: {}, dagster: {}}\nprofiles:\n"
 	tests := []struct {
 		name, profile, path, msg string
 	}{
 		{"under flink", k8s + "    components:\n      flink:\n        external: {}\n",
 			"profiles.prod.components.flink.external", "external is only supported for storage, kafka and catalog"},
-		{"on minikube", "    components:\n      storage:\n        external: {endpoint: e}\n",
-			"profiles.prod.components.storage.external", "external services need target: kubernetes"},
+		{"on minikube", "  dev:\n    components:\n      storage:\n        external: {endpoint: e}\n",
+			"profiles.dev.components.storage.external", "external services need target: kubernetes"},
 		{"storage missing flink bucket", k8s + "    components:\n      storage:\n        external:\n          endpoint: e\n          credentials_secret: s\n          buckets: {warehouse: w}\n",
 			"profiles.prod.components.storage.external.buckets.flink", "flink is required"},
 		{"storage missing endpoint", k8s + "    components:\n      storage:\n        external: {credentials_secret: s, buckets: {warehouse: w, flink: f}}\n",
@@ -249,8 +249,10 @@ func TestProfileFieldRules(t *testing.T) {
 		{"name", "  Prod_1: {}\n", "profiles.Prod_1", "profile names must match"},
 		{"target", "  prod: {target: gke}\n", "profiles.prod.target", "target must be minikube or kubernetes"},
 		{"kubernetes context", "  prod: {target: kubernetes}\n", "profiles.prod.context", "context is required for target: kubernetes"},
-		{"minikube context", "  prod: {context: my-ctx}\n", "profiles.prod.context", "context is always ois-<project> for target: minikube; remove it"},
-		{"dev context", "  dev: {context: my-ctx}\n", "profiles.dev.context", "remove it"},
+		{"dev context", "  dev: {context: my-ctx}\n", "profiles.dev.context", "context is always ois-<project> for target: minikube; remove it"},
+		{"dev on kubernetes", "  dev: {target: kubernetes, context: c}\n", "profiles.dev.target", "dev always runs on minikube; put a real cluster in a profile of its own"},
+		{"other on minikube", "  stage: {target: minikube}\n", "profiles.stage.target", "only dev runs on minikube; other profiles need target: kubernetes"},
+		{"other defaults to kubernetes", "  stage: {}\n", "profiles.stage.context", "context is required for target: kubernetes"},
 		{"tier", "  prod: {tier: staging}\n", "profiles.prod.tier", "tier must be dev or production"},
 		{"secrets", "  prod: {secrets: vault}\n", "profiles.prod.secrets", "secrets must be generate or existing"},
 		{"prefix pattern", "  prod: {namespace_prefix: Lake_}\n", "profiles.prod.namespace_prefix", "at most 50 characters"},
@@ -269,7 +271,7 @@ func TestProfileFieldRules(t *testing.T) {
 			}
 		})
 	}
-	s, err := Parse([]byte(header+"components: {storage: {}}\nprofiles:\n  prod: {namespace_prefix: "+strings.Repeat("a", 50)+"}\n"), "ois.yaml")
+	s, err := Parse([]byte(header+"components: {storage: {}}\nprofiles:\n  prod: {context: c, namespace_prefix: "+strings.Repeat("a", 50)+"}\n"), "ois.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +292,7 @@ func TestProfileNamespace(t *testing.T) {
 
 func TestProfileTopLevelErrorReportedOnce(t *testing.T) {
 	yml := "apiVersion: ois/v1alpha1\nproject: Bad_Name\ncomponents: {storage: {}}\nprofiles:\n" +
-		"  prod: {target: kubernetes, context: p}\n  staging: {target: kubernetes, context: s}\n  qa: {}\n"
+		"  prod: {target: kubernetes, context: p}\n  staging: {target: kubernetes, context: s}\n  qa: {context: q}\n"
 	s, err := Parse([]byte(yml), "ois.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +346,7 @@ func init() {
 
 func TestProfileOnlyProblemIsLabelled(t *testing.T) {
 	yml := "apiVersion: ois/v1alpha1\nproject: " + profileProbeProject + "\ncomponents: {storage: {}}\nprofiles:\n" +
-		"  prod:\n    components:\n      trino: {}\n  qa:\n    components:\n      trino: {}\n"
+		"  prod:\n    context: p\n    components:\n      trino: {}\n  qa:\n    context: q\n    components:\n      trino: {}\n"
 	s, err := Parse([]byte(yml), "ois.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -371,5 +373,22 @@ func TestProfileNullComponentsInProfile(t *testing.T) {
 	}
 	if qa := mustResolve(t, s, "qa"); !qa.Enabled("storage") {
 		t.Fatal("empty profile components: disabled the top-level components")
+	}
+}
+
+func TestResolveNonDevProfileIsKubernetes(t *testing.T) {
+	s, err := Parse([]byte(header+"components: {storage: {}}\nsamples: [test-sample]\nprofiles:\n  stage: {context: stage-admin}\n"), "ois.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	r := mustResolve(t, s, "stage")
+	if r.Profile.Target != TargetKubernetes || r.Profile.Context != "stage-admin" || len(r.Samples) != 0 {
+		t.Fatalf("stage = %+v, samples %v; want kubernetes, stage-admin, no samples", r.Profile, r.Samples)
+	}
+	if dev := mustResolve(t, s, "dev"); dev.Profile.Target != TargetMinikube {
+		t.Fatalf("dev target = %q", dev.Profile.Target)
 	}
 }
