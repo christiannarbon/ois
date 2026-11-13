@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -146,4 +147,81 @@ func (s *Spec) decodeStrict(n *yaml.Node, out any, path string) []FieldError {
 		return []FieldError{{Path: p, Msg: de.Msg, Line: de.Line}}
 	}
 	return nil
+}
+
+// maxExpandedNodes caps alias expansion, so a few nested anchors cannot grow into
+// millions of nodes.
+const maxExpandedNodes = 100_000
+
+// expandError is an alias or merge-key problem at a line.
+type expandError struct {
+	Line int
+	Msg  string
+}
+
+func (e *expandError) Error() string { return e.Msg }
+
+// expandFieldError turns an expandAliases error into a FieldError at path.
+func expandFieldError(path string, err error) FieldError {
+	fe := FieldError{Path: path, Msg: err.Error()}
+	var ee *expandError
+	if errors.As(err, &ee) {
+		fe.Line = ee.Line
+	}
+	return fe
+}
+
+// expandAliases returns a copy of n as yaml.v3's decoder sees it: aliases are replaced by
+// the node they point to and "<<" merge keys are folded into their mapping, explicit keys
+// winning. Expanded nodes keep the lines of their anchors.
+func expandAliases(n *yaml.Node) (*yaml.Node, error) {
+	budget := maxExpandedNodes
+	return expand(n, &budget)
+}
+
+func expand(n *yaml.Node, budget *int) (*yaml.Node, error) {
+	if n == nil {
+		return nil, nil
+	}
+	if *budget--; *budget < 0 {
+		return nil, &expandError{Line: n.Line, Msg: fmt.Sprintf("too many aliases (anchors expand to more than %d nodes)", maxExpandedNodes)}
+	}
+	if n.Kind == yaml.AliasNode {
+		return expand(n.Alias, budget)
+	}
+	c := *n
+	c.Content = nil
+	var inherited []*yaml.Node
+	for i := 0; i < len(n.Content); i++ {
+		if n.Kind == yaml.MappingNode && i+1 < len(n.Content) && n.Content[i].Tag == "!!merge" {
+			key := n.Content[i]
+			i++
+			src, err := expand(n.Content[i], budget)
+			if err != nil {
+				return nil, err
+			}
+			sources := []*yaml.Node{src}
+			if src.Kind == yaml.SequenceNode {
+				sources = src.Content
+			}
+			for _, m := range sources {
+				if m.Kind != yaml.MappingNode {
+					return nil, &expandError{Line: key.Line, Msg: "<< needs a mapping or a list of mappings"}
+				}
+				inherited = append(inherited, m.Content...)
+			}
+			continue
+		}
+		child, err := expand(n.Content[i], budget)
+		if err != nil {
+			return nil, err
+		}
+		c.Content = append(c.Content, child)
+	}
+	for i := 0; i+1 < len(inherited); i += 2 {
+		if keyIndex(&c, inherited[i].Value) < 0 {
+			c.Content = append(c.Content, inherited[i], inherited[i+1])
+		}
+	}
+	return &c, nil
 }
