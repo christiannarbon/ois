@@ -129,21 +129,30 @@ func (s *Spec) Resolve(name string) (*Resolved, error) {
 	rp := resolveProfile(name, p, s.Project)
 	prefix := "profiles." + name + ".components"
 
-	var errs []FieldError
-	var override *yaml.Node
-	switch p.Components.Kind {
-	case 0:
-	case yaml.MappingNode:
-		override = &p.Components
-	case yaml.ScalarNode:
-		if p.Components.Tag != "!!null" {
-			errs = append(errs, FieldError{Path: prefix, Msg: "expected a mapping", Line: p.Components.Line})
-		}
-	default:
-		errs = append(errs, FieldError{Path: prefix, Msg: "expected a mapping", Line: p.Components.Line})
+	base, err := expandAliases(s.componentsNode)
+	if err != nil {
+		return nil, s.validationError([]FieldError{expandFieldError("components", err)})
 	}
+	if base != nil && base.Kind != yaml.MappingNode {
+		base = nil
+	}
+	nullsToMappings(base)
 
-	merged := mergeNodes(s.componentsNode, override)
+	var errs []FieldError
+	override, err := expandAliases(&p.Components)
+	switch {
+	case err != nil:
+		errs = append(errs, expandFieldError(prefix, err))
+		override = nil
+	case override.Kind == 0, override.Kind == yaml.ScalarNode && override.Tag == "!!null":
+		override = nil
+	case override.Kind != yaml.MappingNode:
+		errs = append(errs, FieldError{Path: prefix, Msg: "expected a mapping", Line: p.Components.Line})
+		override = nil
+	}
+	nullsToMappings(override)
+
+	merged := mergeNodes(base, override)
 	external, externalLines := liftExternal(merged)
 	var comps Components
 	if merged != nil {
