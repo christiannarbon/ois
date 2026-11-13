@@ -131,6 +131,12 @@ func TestParseInline(t *testing.T) {
 		{"nested typo", "project: demo\ncluster:\n  szie: lean\n", `ois.yaml:3: cluster.szie: unknown field (did you mean "size"?)`},
 		{"stream typo", "streams:\n  - name: a\n  - nmae: b\n", `ois.yaml:3: streams[1].nmae: unknown field (did you mean "name"?)`},
 		{"components not a mapping", "components: [storage]\n", "ois.yaml:1: components: expected a mapping"},
+		{"type error names the right key", "cluster: {size: custom, cpus: four, memory: 4096, disk: 40g}\n", `ois.yaml:1: cluster.cpus: expected a number, got "four"`},
+		{"long value matched by prefix", "cluster: {memory: 4096, cpus: 99999999999999999999}\n", "ois.yaml:1: cluster.cpus: expected a number"},
+		{"duplicate key", "project: demo\ncomponents: {storage: {}}\ncomponents: {kafka: {}}\n", "ois.yaml:3: components: duplicate key (first defined on line 2)"},
+		{"second document syntax error", "project: demo\n---\na: [\n", "ois.yaml:3: did not find expected node content"},
+		{"second document line", "project: a\n---\nproject: b\n", "ois.yaml:2: only one YAML document"},
+		{"top-level external", "components:\n  storage:\n    external: {endpoint: e}\n", "ois.yaml:3: components.storage.external: unknown field (external services are set per profile: profiles.<name>.components.storage.external)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
