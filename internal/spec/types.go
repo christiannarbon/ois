@@ -28,7 +28,7 @@ type Spec struct {
 	File string `yaml:"-"`
 	// pos maps a field path ("components.storage", "streams[0].name") to its line.
 	pos map[string]int
-	// componentsNode is the top-level components mapping, nulls already turned into {}.
+	// componentsNode is the top-level components node (a mapping or an alias to one).
 	componentsNode *yaml.Node
 }
 

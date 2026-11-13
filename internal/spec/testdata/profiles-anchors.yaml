@@ -1,0 +1,17 @@
+apiVersion: ois/v1alpha1
+project: demo
+components: &base
+  storage: {}
+  kafka: &kafka {}
+profiles:
+  prod:
+    target: kubernetes
+    context: prod-admin
+    components:
+      <<: *base
+      trino:
+      kafka: *kafka
+  stage:
+    target: kubernetes
+    context: stage-admin
+    components: *base
