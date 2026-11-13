@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
@@ -33,8 +34,15 @@ func checkProfile(s *Spec, name string, p Profile) []FieldError {
 	if !profileNameRe.MatchString(name) {
 		add("", "profile names must match "+profileNameRe.String())
 	}
-	switch p.Target {
-	case "", TargetMinikube:
+	target := cmp.Or(p.Target, defaultTarget(name))
+	switch {
+	case name == DefaultProfile && target == TargetKubernetes:
+		add("target", "dev always runs on minikube; put a real cluster in a profile of its own")
+	case name != DefaultProfile && target == TargetMinikube:
+		add("target", "only dev runs on minikube; other profiles need target: kubernetes")
+	}
+	switch target {
+	case TargetMinikube:
 		if p.Context != "" {
 			add("context", "context is always ois-<project> for target: minikube; remove it")
 		}
