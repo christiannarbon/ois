@@ -2,6 +2,7 @@ package spec
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,6 +18,9 @@ const longestBaseNamespace = 13
 
 // catalogEngines are the components that talk to an external catalog with their own credentials.
 var catalogEngines = []string{"flink", "trino", "dagster"}
+
+// externalBuckets are the buckets an external storage must name.
+var externalBuckets = []string{"warehouse", "flink"}
 
 // checkProfile checks one declared profile's own settings. Component overrides and
 // external placement are checked by Resolve.
@@ -74,8 +78,10 @@ func checkExternal(r *Resolved) []FieldError {
 		p := path + "storage.external"
 		required(p, "endpoint", st.Endpoint)
 		required(p, "credentials_secret", st.CredentialsSecret)
-		required(p, "buckets.warehouse", st.Buckets["warehouse"])
-		required(p, "buckets.flink", st.Buckets["flink"])
+		for _, b := range externalBuckets {
+			required(p, "buckets."+b, st.Buckets[b])
+		}
+		errs = append(errs, unknownMapKeys(p+".buckets", "bucket", st.Buckets, externalBuckets)...)
 	}
 	if k := ext.Kafka; k != nil {
 		p := path + "kafka.external"
@@ -102,6 +108,23 @@ func checkExternal(r *Resolved) []FieldError {
 				})
 			}
 		}
+		errs = append(errs, unknownMapKeys(p+".credentials_secrets", "engine", c.CredentialsSecrets, catalogEngines)...)
+	}
+	return errs
+}
+
+// unknownMapKeys reports every key of m that is not in known, at path.<key>.
+func unknownMapKeys(path, what string, m map[string]string, known []string) []FieldError {
+	var errs []FieldError
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		if slices.Contains(known, k) {
+			continue
+		}
+		msg := fmt.Sprintf("unknown %s (known: %s)", what, strings.Join(known, ", "))
+		if s := suggest(k, known); s != "" {
+			msg = fmt.Sprintf("unknown %s (did you mean %q?)", what, s)
+		}
+		errs = append(errs, FieldError{Path: path + "." + k, Msg: msg})
 	}
 	return errs
 }
