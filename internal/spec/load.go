@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,31 +54,36 @@ func Parse(data []byte, file string) (*Spec, error) {
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, convertError(err, file, nil)
+		return nil, convertError(err, file, nil, nil)
 	}
 	if doc.Kind == 0 || len(doc.Content) == 0 {
 		return nil, fmt.Errorf("%s is empty", filepath.Base(file))
 	}
-	pos := map[string]int{}
-	recordPositions(doc.Content[0], "", pos)
+	pos, vals := map[string]int{}, map[string]string{}
+	recordPositions(doc.Content[0], "", pos, vals)
 
 	// Decode the original bytes strictly so error lines match the file. The node is
 	// decoded afterwards only for its values, once nulls under components are fixed.
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&Spec{}); err != nil {
-		return nil, convertError(err, file, pos)
+		return nil, convertError(err, file, pos, vals)
 	}
 	var extra yaml.Node
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+	switch err := dec.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+	case err != nil:
+		return nil, convertError(err, file, nil, nil)
+	default:
 		return nil, &DecodeError{File: file, Line: extra.Line, Msg: "only one YAML document is allowed"}
 	}
 
 	enableNullComponents(doc.Content[0])
 	s := &Spec{}
 	if err := doc.Decode(s); err != nil {
-		return nil, convertError(err, file, pos)
+		return nil, convertError(err, file, pos, vals)
 	}
+	s.vals = vals
 	s.File = abs
 	s.Dir = filepath.Dir(abs)
 	s.pos = pos
@@ -88,7 +94,7 @@ func Parse(data []byte, file string) (*Spec, error) {
 	return s, nil
 }
 
-func recordPositions(n *yaml.Node, path string, pos map[string]int) {
+func recordPositions(n *yaml.Node, path string, pos map[string]int, vals map[string]string) {
 	switch n.Kind {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(n.Content); i += 2 {
@@ -98,13 +104,16 @@ func recordPositions(n *yaml.Node, path string, pos map[string]int) {
 				p = path + "." + key.Value
 			}
 			pos[p] = key.Line
-			recordPositions(val, p, pos)
+			if val.Kind == yaml.ScalarNode {
+				vals[p] = val.Value
+			}
+			recordPositions(val, p, pos, vals)
 		}
 	case yaml.SequenceNode:
 		for i, item := range n.Content {
 			p := fmt.Sprintf("%s[%d]", path, i)
 			pos[p] = item.Line
-			recordPositions(item, p, pos)
+			recordPositions(item, p, pos, vals)
 		}
 	}
 }
@@ -148,10 +157,12 @@ func mappingValue(n *yaml.Node, key string) *yaml.Node {
 var (
 	unknownFieldRe = regexp.MustCompile(`^line (\d+): field (\S+) not found in type spec\.(\w+)$`)
 	typeErrRe      = regexp.MustCompile("^line (\\d+): cannot unmarshal !!(\\w+)(?: `(.*)`)? into (\\S+)$")
+	dupKeyRe       = regexp.MustCompile(`^line (\d+): mapping key "(.*)" already defined at line (\d+)$`)
+	lineErrRe      = regexp.MustCompile(`^line (\d+): (.+)$`)
 	syntaxErrRe    = regexp.MustCompile(`^yaml: line (\d+): (.+)$`)
 )
 
-func convertError(err error, file string, pos map[string]int) error {
+func convertError(err error, file string, pos map[string]int, vals map[string]string) error {
 	var te *yaml.TypeError
 	if errors.As(err, &te) && len(te.Errors) > 0 {
 		msg := te.Errors[0]
@@ -160,12 +171,22 @@ func convertError(err error, file string, pos map[string]int) error {
 			de := &DecodeError{File: file, Line: line, Path: keyPath(pos, line, m[2]), Msg: "unknown field"}
 			if s := suggest(m[2], yamlKeys(m[3])); s != "" {
 				de.Msg += fmt.Sprintf(" (did you mean %q?)", s)
+			} else if m[2] == "external" && slices.Contains(externalComponents, strings.ToLower(m[3])) {
+				de.Msg += fmt.Sprintf(" (external services are set per profile: profiles.<name>.components.%s.external)", strings.ToLower(m[3]))
 			}
 			return de
 		}
 		if m := typeErrRe.FindStringSubmatch(msg); m != nil {
 			line, _ := strconv.Atoi(m[1])
-			return &DecodeError{File: file, Line: line, Path: deepestPath(pos, line), Msg: expected(m[4], m[3])}
+			return &DecodeError{File: file, Line: line, Path: valuePath(pos, vals, line, m[3]), Msg: expected(m[4], m[3])}
+		}
+		if m := dupKeyRe.FindStringSubmatch(msg); m != nil {
+			line, _ := strconv.Atoi(m[1])
+			return &DecodeError{File: file, Line: line, Path: keyPath(pos, line, m[2]), Msg: "duplicate key (first defined on line " + m[3] + ")"}
+		}
+		if m := lineErrRe.FindStringSubmatch(msg); m != nil {
+			line, _ := strconv.Atoi(m[1])
+			return &DecodeError{File: file, Line: line, Msg: m[2]}
 		}
 		return &DecodeError{File: file, Msg: msg}
 	}
@@ -211,14 +232,32 @@ func keyPath(pos map[string]int, line int, field string) string {
 	return best
 }
 
-// deepestPath returns the most nested key path recorded on line, or "". Sequence items
-// are skipped: a type error on a line is about the value of the key that starts it.
-func deepestPath(pos map[string]int, line int) string {
-	best := ""
+// valuePath returns the key path on line whose value is got (yaml.v3 shortens long values
+// to their first characters plus "..."). Without a match it falls back to the most nested
+// key on the line. Sequence items are skipped: a type error on a line is about the value
+// of a key.
+func valuePath(pos map[string]int, vals map[string]string, line int, got string) string {
+	best, matched := "", false
 	for p, l := range pos {
-		if l == line && !strings.HasSuffix(p, "]") && (len(p) > len(best) || len(p) == len(best) && p < best) {
+		if l != line || strings.HasSuffix(p, "]") {
+			continue
+		}
+		m := got != "" && valueMatches(vals[p], got)
+		switch {
+		case matched && !m:
+			continue
+		case m && !matched:
+			best, matched = p, true
+		case len(p) > len(best) || len(p) == len(best) && p < best:
 			best = p
 		}
 	}
 	return best
+}
+
+func valueMatches(value, got string) bool {
+	if short, ok := strings.CutSuffix(got, "..."); ok {
+		return strings.HasPrefix(value, short)
+	}
+	return value == got
 }
