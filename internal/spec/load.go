@@ -81,7 +81,7 @@ func Parse(data []byte, file string) (*Spec, error) {
 	s.File = abs
 	s.Dir = filepath.Dir(abs)
 	s.pos = pos
-	if comps := mappingValue(doc.Content[0], "components"); comps != nil && comps.Kind == yaml.MappingNode {
+	if comps := mappingValue(doc.Content[0], "components"); comps != nil && (comps.Kind == yaml.MappingNode || comps.Kind == yaml.AliasNode) {
 		s.componentsNode = comps
 	}
 	applyDefaults(s)
