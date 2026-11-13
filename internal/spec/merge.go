@@ -136,7 +136,7 @@ func (s *Spec) decodeStrict(n *yaml.Node, out any, path string) []FieldError {
 		return errs
 	}
 	if err := n.Decode(out); err != nil {
-		de, ok := convertError(err, s.File, s.pos).(*DecodeError)
+		de, ok := convertError(err, s.File, s.pos, s.vals).(*DecodeError)
 		if !ok {
 			return []FieldError{{Path: path, Msg: err.Error()}}
 		}

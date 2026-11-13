@@ -29,6 +29,8 @@ type Spec struct {
 	Dir string `yaml:"-"`
 	// File is the absolute path of ois.yaml.
 	File string `yaml:"-"`
+	// vals maps a key path to its scalar value, to tell keys on one line apart.
+	vals map[string]string
 	// pos maps a field path ("components.storage", "streams[0].name") to its line.
 	pos map[string]int
 	// componentsNode is the top-level components node (a mapping or an alias to one).
