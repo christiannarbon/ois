@@ -46,7 +46,7 @@ func TestValidateValid(t *testing.T) {
 	}
 	want := "spec:        " + filepath.Join(dir, "ois.yaml") + "\n" +
 		"project:     demo  (cluster profile ois-demo)\n" +
-		"cluster:     lean\n" +
+		"cluster:     lean (4 CPU, 7168 MiB, 30g)\n" +
 		"profile:     dev  (target minikube, context ois-demo, tier dev)\n" +
 		"profiles:    dev\n" +
 		"components:  storage\n" +
@@ -55,6 +55,20 @@ func TestValidateValid(t *testing.T) {
 		"✓ ois.yaml is valid\n"
 	if out != want {
 		t.Fatalf("stdout\n%s\nwant\n%s", out, want)
+	}
+}
+
+func TestValidateClusterSize(t *testing.T) {
+	cases := map[string]string{
+		"{size: minimal}": "cluster:     minimal (2 CPU, 4096 MiB, 20g)\n",
+		"{size: custom, cpus: 6, memory: 12288, disk: 60g}": "cluster:     custom (6 CPU, 12288 MiB, 60g)\n",
+	}
+	for c, want := range cases {
+		yml := "apiVersion: ois/v1alpha1\nproject: demo\ncluster: " + c + "\ncomponents:\n  storage: {}\n"
+		code, out, errOut, _ := runValidate(t, yml, "-f", "$DIR", "validate")
+		if code != ExitOK || !strings.Contains(out, want) {
+			t.Errorf("%s: code %d stderr %q stdout\n%s", c, code, errOut, out)
+		}
 	}
 }
 
@@ -162,6 +176,8 @@ profiles:
 		t.Fatalf("code %d stderr %q", code, errOut)
 	}
 	for _, want := range []string{
+		"project:     demo\n",
+		"cluster:     existing (context prod-admin)\n",
 		"profile:     prod  (target kubernetes, context prod-admin, tier production)\n",
 		"profiles:    dev, prod\n",
 		"components:  storage (external), catalog (external), trino\n",
