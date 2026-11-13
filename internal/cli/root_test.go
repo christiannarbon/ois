@@ -157,3 +157,23 @@ func TestVersionListsPins(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
 }
+
+func TestGlobalTarget(t *testing.T) {
+	yml := "apiVersion: ois/v1alpha1\nproject: demo\ncomponents: {storage: {}}\n" +
+		"profiles:\n  prod: {target: kubernetes, context: prod-admin}\n"
+	_, _, _, dir := runValidate(t, yml)
+	for profile, want := range map[string]string{"dev": "ois-demo", "prod": "prod-admin"} {
+		var errBuf bytes.Buffer
+		g := &GlobalOptions{File: dir, Profile: profile, DryRun: true, Stderr: &errBuf}
+		r, target, err := g.Target(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Profile.Name != profile || target.Context != want || target.Project != "demo" {
+			t.Errorf("%s: got %+v", profile, target)
+		}
+		if !strings.Contains(errBuf.String(), "kubectl config get-contexts -o name") {
+			t.Errorf("%s: dry-run output %q", profile, errBuf.String())
+		}
+	}
+}
