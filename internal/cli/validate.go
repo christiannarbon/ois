@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/christiannarbon/ois/internal/cluster"
 	"github.com/christiannarbon/ois/internal/project"
 	"github.com/christiannarbon/ois/internal/spec"
 )
@@ -56,8 +57,14 @@ func writePlan(w io.Writer, r *spec.Resolved, profiles []string) error {
 		}
 	}
 	p := r.Profile
+	projectLine := fmt.Sprintf("%s  (cluster profile %s)", r.Project, project.ProfileName(r.Project))
+	clusterLine := fmt.Sprintf("%s (%s)", r.Cluster.Size, cluster.SizeFor(r.Cluster))
+	if p.Target == spec.TargetKubernetes {
+		projectLine = r.Project
+		clusterLine = fmt.Sprintf("existing (context %s)", p.Context)
+	}
 	_, err := fmt.Fprintf(w, `spec:        %s
-project:     %s  (cluster profile %s)
+project:     %s
 cluster:     %s
 profile:     %s  (target %s, context %s, tier %s)
 profiles:    %s
@@ -65,7 +72,7 @@ components:  %s
 streams:     %d
 samples:     %s
 ✓ %s is valid
-`, r.File, r.Project, project.ProfileName(r.Project), r.Cluster.Size,
+`, r.File, projectLine, clusterLine,
 		p.Name, p.Target, p.Context, p.Tier, strings.Join(profiles, ", "),
 		strings.Join(components, ", "), len(r.Streams), samples, filepath.Base(r.File))
 	return err
