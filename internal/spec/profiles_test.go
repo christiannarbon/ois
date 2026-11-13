@@ -225,6 +225,10 @@ func TestProfileExternalRules(t *testing.T) {
 			"profiles.prod.components.kafka.external.credentials_secret", "required for security: SASL_SSL"},
 		{"catalog engine secret", k8s + "    components:\n      catalog:\n        external: {uri: u, warehouse: w, credentials_secrets: {flink: f, trino: t}}\n",
 			"profiles.prod.components.catalog.external.credentials_secrets.dagster", "credentials_secrets.dagster is required because dagster is enabled"},
+		{"storage unknown bucket", k8s + "    components:\n      storage:\n        external: {endpoint: e, credentials_secret: s, buckets: {warehouse: w, flink: f, flnk: x}}\n",
+			"profiles.prod.components.storage.external.buckets.flnk", `unknown bucket (did you mean "flink"?)`},
+		{"catalog unknown engine", k8s + "    components:\n      catalog:\n        external: {uri: u, warehouse: w, credentials_secrets: {flink: f, trino: t, dagster: d, spark: s}}\n",
+			"profiles.prod.components.catalog.external.credentials_secrets.spark", "unknown engine (known: flink, trino, dagster)"},
 		{"catalog uri", k8s + "    components:\n      catalog:\n        external: {warehouse: w, credentials_secrets: {flink: f, trino: t, dagster: d}}\n",
 			"profiles.prod.components.catalog.external.uri", "uri is required"},
 	}
