@@ -25,10 +25,23 @@ type GlobalOptions struct {
 	Yes     bool   // skip confirmation prompts
 	Stdout  io.Writer
 	Stderr  io.Writer
+
+	stdin          io.Reader    // tests only; nil means os.Stdin
+	runnerOverride execx.Runner // tests only
+}
+
+func (g *GlobalOptions) input() io.Reader {
+	if g.stdin != nil {
+		return g.stdin
+	}
+	return os.Stdin
 }
 
 // Runner returns the execx.Runner selected by the global flags.
 func (g *GlobalOptions) Runner() execx.Runner {
+	if g.runnerOverride != nil {
+		return g.runnerOverride
+	}
 	if g.DryRun {
 		return execx.NewDryRun(g.Stderr)
 	}
@@ -77,15 +90,18 @@ func (g *GlobalOptions) Target(ctx context.Context) (*spec.Resolved, cluster.Tar
 
 // NewRootCommand builds the full command tree. Tests call it with buffers.
 func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
-	g := &GlobalOptions{Stdout: stdout, Stderr: stderr}
+	return newRootCommand(&GlobalOptions{Stdout: stdout, Stderr: stderr})
+}
+
+func newRootCommand(g *GlobalOptions) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ois",
 		Short:         "A config-driven lakehouse playground on local Kubernetes",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.SetOut(stdout)
-	root.SetErr(stderr)
+	root.SetOut(g.Stdout)
+	root.SetErr(g.Stderr)
 	pf := root.PersistentFlags()
 	pf.StringVarP(&g.File, "file", "f", "", "path to ois.yaml (default: search upwards from the current directory)")
 	pf.BoolVar(&g.DryRun, "dry-run", false, "print external commands instead of running them")
@@ -95,6 +111,8 @@ func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(
 		newVersionCommand(g),
 		newValidateCommand(g),
+		newUpCommand(g),
+		newDownCommand(g),
 	)
 	return root
 }
