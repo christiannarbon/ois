@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -26,8 +27,11 @@ type GlobalOptions struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 
-	stdin          io.Reader    // tests only; nil means os.Stdin
-	runnerOverride execx.Runner // tests only
+	stdin          io.Reader            // tests only; nil means os.Stdin
+	runnerOverride execx.Runner         // tests only
+	terminal       func(io.Reader) bool // tests only; nil means isTerminal
+	reader         *bufio.Reader        // shared by every confirm prompt in one run
+	readerSrc      io.Reader
 }
 
 func (g *GlobalOptions) input() io.Reader {
