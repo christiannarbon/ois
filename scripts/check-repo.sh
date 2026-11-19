@@ -31,6 +31,12 @@ if [[ -z "$bad" ]]; then pass "versions.env format"; else fail "versions.env for
 ids="$(grep -rnE --exclude=check-repo.sh 'OPEN-ICE|DR-[0-9]' docs/tech docs/user components scripts cmd internal || true)"
 if [[ -z "$ids" ]]; then pass "no plan ids in docs, components, scripts, code"; else fail "plan ids found:"$'\n'"$ids"; fi
 
+# kubectl and helm run only through the cluster, kube and helm packages, which take the
+# context from a guarded cluster.Target.
+kube_calls="$(grep -rnE 'Name: *"(kubectl|helm)"' cmd internal \
+  | grep -vE '^internal/(cluster|kube|helm)/|_test\.go:' || true)"
+if [[ -z "$kube_calls" ]]; then pass "kubectl and helm only in cluster, kube, helm"; else fail "kubectl/helm built outside cluster, kube, helm:"$'\n'"$kube_calls"; fi
+
 broken_links() {
   python3 -I - <<'PY'
 import pathlib, re
