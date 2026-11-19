@@ -1,20 +1,18 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/christiannarbon/ois/internal/cluster"
-	"github.com/christiannarbon/ois/internal/execx"
 	"github.com/christiannarbon/ois/internal/spec"
 )
 
-const defaultClassAnnotation = "storageclass.kubernetes.io/is-default-class"
+const readyTimeout = 300 * time.Second
 
 func newUpCommand(g *GlobalOptions) *cobra.Command {
 	var recreate bool
@@ -26,7 +24,8 @@ func newUpCommand(g *GlobalOptions) *cobra.Command {
 			return runUp(cmd.Context(), g, recreate)
 		},
 	}
-	cmd.Flags().BoolVar(&recreate, "recreate", false, "delete and recreate the cluster when its size differs from ois.yaml (deletes all data in it)")
+	cmd.Flags().BoolVar(&recreate, "recreate", false,
+		"delete and recreate the cluster when it no longer matches ois.yaml (asks first; deletes all data in it)")
 	return cmd
 }
 
@@ -45,6 +44,9 @@ func minikubeManager(g *GlobalOptions, verb string) (*spec.Resolved, *cluster.Ma
 	if err != nil {
 		return nil, nil, err
 	}
+	if g.Verbose {
+		m.Progress = g.Stderr
+	}
 	return r, m, nil
 }
 
@@ -54,17 +56,26 @@ func runUp(ctx context.Context, g *GlobalOptions, recreate bool) error {
 		return err
 	}
 	want := cluster.SizeFor(r.Cluster)
-	state, have, err := m.Inspect(ctx)
+	st, err := m.Inspect(ctx)
 	if err != nil {
 		return err
 	}
-	if state != cluster.StateMissing && (have.CPUs != want.CPUs || have.MemoryMiB != want.MemoryMiB) {
-		if !recreate {
-			return sizeMismatch(m.Profile, state, have, want)
-		}
-		fmt.Fprintf(g.Stdout, "deleting cluster %s (%s) to recreate it at %s\n", m.Profile, cpuMem(have), cpuMem(want))
-		if err := m.Delete(ctx); err != nil {
-			return err
+	if st.State == cluster.StateInvalid {
+		return m.InvalidError()
+	}
+	if st.State != cluster.StateMissing {
+		if problems := drift(m, st, want); len(problems) > 0 {
+			if !recreate {
+				return driftError(m.Profile, problems)
+			}
+			prompt := fmt.Sprintf("Delete cluster %s and ALL data in it, then recreate it?", m.Profile)
+			if err := confirm(g, g.input(), prompt, "recreate"); err != nil {
+				return err
+			}
+			fmt.Fprintf(g.Stdout, "deleting cluster %s to recreate it\n", m.Profile)
+			if err := m.Purge(ctx); err != nil {
+				return err
+			}
 		}
 	}
 	fmt.Fprintf(g.Stdout, "starting cluster %s (%s %s), this can take a few minutes\n", m.Profile, r.Cluster.Size, want)
@@ -74,65 +85,50 @@ func runUp(ctx context.Context, g *GlobalOptions, recreate bool) error {
 	if err := m.EnableAddons(ctx); err != nil {
 		return err
 	}
-	kctx := r.Profile.Context
-	if _, err := g.Runner().Run(ctx, kubectl(kctx, "wait", "--for=condition=Ready", "nodes", "--all", "--timeout=300s")); err != nil {
-		return err
-	}
-	if err := requireOneDefaultStorageClass(ctx, g.Runner(), kctx); err != nil {
-		return err
-	}
-	fmt.Fprintf(g.Stdout, "✓ cluster %s ready (%s) — kube context %q\n", m.Profile, cpuMem(want), kctx)
-	fmt.Fprintf(g.Stdout, "  your current kube context was not changed; ois always uses %q\n", kctx)
-	return nil
-}
-
-func sizeMismatch(profile string, state cluster.State, have, want cluster.Size) error {
-	verb := "is running"
-	if state == cluster.StateStopped {
-		verb = "exists"
-	}
-	return fmt.Errorf("cluster %q %s with %d CPU / %d MiB but ois.yaml asks for %d CPU / %d MiB.\n"+
-		"minikube cannot resize a cluster. Recreate it (this deletes all data in it):\n"+
-		"  ois up --recreate", profile, verb, have.CPUs, have.MemoryMiB, want.CPUs, want.MemoryMiB)
-}
-
-func cpuMem(s cluster.Size) string { return fmt.Sprintf("%d CPU, %d MiB", s.CPUs, s.MemoryMiB) }
-
-func kubectl(kctx string, args ...string) execx.Cmd {
-	return execx.Cmd{Name: "kubectl", Args: append([]string{"--context", kctx}, args...)}
-}
-
-// requireOneDefaultStorageClass fails unless exactly one StorageClass is the default.
-// Empty output (dry run) cannot be checked and passes.
-func requireOneDefaultStorageClass(ctx context.Context, r execx.Runner, kctx string) error {
-	res, err := r.Run(ctx, kubectl(kctx, "get", "storageclass", "-o", "json"))
+	t, err := cluster.RequireContext(ctx, g.Runner(), r.Project, r.Profile)
 	if err != nil {
 		return err
 	}
-	out := bytes.TrimSpace(res.Stdout)
-	if len(out) == 0 {
-		return nil
+	if err := cluster.WaitReady(ctx, g.Runner(), t, readyTimeout); err != nil {
+		return err
 	}
-	var list struct {
-		Items []struct {
-			Metadata struct {
-				Name        string            `json:"name"`
-				Annotations map[string]string `json:"annotations"`
-			} `json:"metadata"`
-		} `json:"items"`
+	if err := cluster.RequireOneDefaultStorageClass(ctx, g.Runner(), t); err != nil {
+		return err
 	}
-	if err := json.Unmarshal(out, &list); err != nil {
-		return fmt.Errorf("reading storage classes: %w", err)
-	}
-	var defaults []string
-	for _, sc := range list.Items {
-		if sc.Metadata.Annotations[defaultClassAnnotation] == "true" {
-			defaults = append(defaults, sc.Metadata.Name)
-		}
-	}
-	if len(defaults) != 1 {
-		return fmt.Errorf("cluster %q must have exactly one default StorageClass, found %d: [%s]",
-			kctx, len(defaults), strings.Join(defaults, ", "))
-	}
+	fmt.Fprintf(g.Stdout, "✓ cluster %s ready (%s) — kube context %q\n", m.Profile, cpuMem(want), t.Context)
+	fmt.Fprintf(g.Stdout, "  your current kube context was not changed; ois always uses %q\n", t.Context)
 	return nil
 }
+
+// drift lists what minikube cannot change on the existing profile. Values minikube did
+// not report are not compared.
+func drift(m *cluster.Manager, st cluster.Status, want cluster.Size) []string {
+	verb := "is running with"
+	if st.State == cluster.StateStopped {
+		verb = "exists with"
+	}
+	var out []string
+	if st.Size.CPUs != want.CPUs || st.Size.MemoryMiB != want.MemoryMiB {
+		out = append(out, fmt.Sprintf("cluster %q %s %d CPU / %d MiB but ois.yaml asks for %d CPU / %d MiB.",
+			m.Profile, verb, st.Size.CPUs, st.Size.MemoryMiB, want.CPUs, want.MemoryMiB))
+	}
+	if st.K8sVersion != "" && st.K8sVersion != m.K8sVersion {
+		out = append(out, fmt.Sprintf("cluster %q has Kubernetes %s but ois pins %s.", m.Profile, st.K8sVersion, m.K8sVersion))
+	}
+	if st.Driver != "" && st.Driver != m.Driver {
+		out = append(out, fmt.Sprintf("cluster %q uses the %s driver but ois is set to use %s (%s).",
+			m.Profile, st.Driver, m.Driver, cluster.DriverEnv))
+	}
+	return out
+}
+
+func driftError(profile string, problems []string) error {
+	why := "minikube cannot change these on an existing cluster."
+	if len(problems) == 1 && strings.Contains(problems[0], " CPU / ") {
+		why = "minikube cannot resize a cluster."
+	}
+	return fmt.Errorf("%s\n%s Recreate it (this deletes all data in it):\n  ois up --recreate",
+		strings.Join(problems, "\n"), why)
+}
+
+func cpuMem(s cluster.Size) string { return fmt.Sprintf("%d CPU, %d MiB", s.CPUs, s.MemoryMiB) }
