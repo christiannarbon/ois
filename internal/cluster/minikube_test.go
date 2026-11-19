@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func profileJSON(status string) string {
 	return `{"invalid": [], "valid": [
 	  {"Name": "other", "Status": "Running", "Config": {"CPUs": 2, "Memory": 4096}},
 	  {"Name": "ois-demo", "Status": "` + status + `",
-	   "Config": {"CPUs": 4, "Memory": 7168, "KubernetesConfig": {"KubernetesVersion": "v1.30.0"}}}]}`
+	   "Config": {"CPUs": 4, "Memory": 7168, "Driver": "docker", "KubernetesConfig": {"KubernetesVersion": "v1.30.0"}}}]}`
 }
 
 func newTestManager(f *execx.Fake) *Manager {
@@ -44,31 +45,34 @@ func TestNew(t *testing.T) {
 }
 
 func TestInspect(t *testing.T) {
+	live := func(state State) Status {
+		return Status{State: state, Size: Size{CPUs: 4, MemoryMiB: 7168}, K8sVersion: "v1.30.0", Driver: "docker"}
+	}
 	cases := []struct {
-		name  string
-		res   execx.Result
-		err   error
-		state State
-		size  Size
+		name string
+		res  execx.Result
+		err  error
+		want Status
 	}{
-		{"running", execx.Result{Stdout: []byte(profileJSON("Running"))}, nil, StateRunning, Size{CPUs: 4, MemoryMiB: 7168}},
-		{"ok", execx.Result{Stdout: []byte(profileJSON("OK"))}, nil, StateRunning, Size{CPUs: 4, MemoryMiB: 7168}},
-		{"degraded", execx.Result{Stdout: []byte(profileJSON("Degraded"))}, nil, StateRunning, Size{CPUs: 4, MemoryMiB: 7168}},
-		{"stopped", execx.Result{Stdout: []byte(profileJSON("Stopped"))}, nil, StateStopped, Size{CPUs: 4, MemoryMiB: 7168}},
-		{"paused", execx.Result{Stdout: []byte(profileJSON("Paused"))}, nil, StateStopped, Size{CPUs: 4, MemoryMiB: 7168}},
-		{"other profiles only", execx.Result{Stdout: []byte(`{"invalid": [], "valid": [{"Name": "minikube", "Status": "Running"}]}`)}, nil, StateMissing, Size{}},
-		{"no profiles at all", execx.Result{ExitCode: 85}, &execx.ExitError{Cmd: listCmd, ExitCode: 85, Stderr: "* No minikube profile was found."}, StateMissing, Size{}},
-		{"dry run", execx.Result{}, nil, StateMissing, Size{}},
+		{"running", execx.Result{Stdout: []byte(profileJSON("Running"))}, nil, live(StateRunning)},
+		{"ok", execx.Result{Stdout: []byte(profileJSON("OK"))}, nil, live(StateRunning)},
+		{"degraded", execx.Result{Stdout: []byte(profileJSON("Degraded"))}, nil, live(StateRunning)},
+		{"stopped", execx.Result{Stdout: []byte(profileJSON("Stopped"))}, nil, live(StateStopped)},
+		{"paused", execx.Result{Stdout: []byte(profileJSON("Paused"))}, nil, live(StateStopped)},
+		{"invalid", execx.Result{Stdout: []byte(`{"invalid": [{"Name": "ois-demo"}], "valid": []}`)}, nil, Status{State: StateInvalid}},
+		{"other profiles only", execx.Result{Stdout: []byte(`{"invalid": [], "valid": [{"Name": "minikube", "Status": "Running"}]}`)}, nil, Status{State: StateMissing}},
+		{"no profiles at all", execx.Result{ExitCode: 85}, &execx.ExitError{Cmd: listCmd, ExitCode: 85, Stderr: "* No minikube profile was found."}, Status{State: StateMissing}},
+		{"dry run", execx.Result{}, nil, Status{State: StateMissing}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := (&execx.Fake{}).On(listCmd, c.res, c.err)
-			state, size, err := newTestManager(f).Inspect(context.Background())
+			got, err := newTestManager(f).Inspect(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if state != c.state || size != c.size {
-				t.Fatalf("got %s %+v, want %s %+v", state, size, c.state, c.size)
+			if got != c.want {
+				t.Fatalf("got %+v, want %+v", got, c.want)
 			}
 		})
 	}
@@ -83,16 +87,22 @@ func TestInspectErrors(t *testing.T) {
 	}{
 		{"other exit error", execx.Result{}, &execx.ExitError{Cmd: listCmd, ExitCode: 1, Stderr: "docker not running"}, "docker not running"},
 		{"bad json", execx.Result{Stdout: []byte("{")}, nil, "reading minikube profile list"},
-		{"invalid profile", execx.Result{Stdout: []byte(`{"invalid": [{"Name": "ois-demo"}], "valid": []}`)}, nil, "minikube delete -p ois-demo"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := (&execx.Fake{}).On(listCmd, c.res, c.err)
-			_, _, err := newTestManager(f).Inspect(context.Background())
+			_, err := newTestManager(f).Inspect(context.Background())
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err %v, want it to contain %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestInvalidError(t *testing.T) {
+	want := "minikube reports cluster ois-demo as invalid; delete it with: ois down --purge"
+	if got := newTestManager(&execx.Fake{}).InvalidError().Error(); got != want {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -133,21 +143,59 @@ func TestEnableAddonsStopsOnError(t *testing.T) {
 	}
 }
 
+func TestStartFailureShowsOutputTail(t *testing.T) {
+	var out strings.Builder
+	for i := 1; i <= 20; i++ {
+		out.WriteString("line " + strconv.Itoa(i) + "\n")
+	}
+	f := (&execx.Fake{}).On("minikube start", execx.Result{Stdout: []byte(out.String())},
+		&execx.ExitError{Cmd: "minikube start", ExitCode: 1})
+	err := newTestManager(f).Start(context.Background(), Size{CPUs: 2, MemoryMiB: 4096, Disk: "20g"})
+	if err == nil || !strings.Contains(err.Error(), "minikube output (last 15 lines):\nline 6\n") ||
+		strings.Contains(err.Error(), "line 5\n") || !strings.HasSuffix(err.Error(), "line 20") {
+		t.Fatalf("err %v", err)
+	}
+	var ee *execx.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("lost the ExitError: %v", err)
+	}
+}
+
+func TestStartStreamsProgress(t *testing.T) {
+	var progress bytes.Buffer
+	f := (&execx.Fake{}).On("minikube start", execx.Result{Stdout: []byte("😄 starting\n"), Stderr: []byte("warn\n")}, nil)
+	m := newTestManager(f)
+	m.Progress = &progress
+	if err := m.Start(context.Background(), Size{CPUs: 2, MemoryMiB: 4096, Disk: "20g"}); err != nil {
+		t.Fatal(err)
+	}
+	if progress.String() != "😄 starting\nwarn\n" {
+		t.Fatalf("progress %q", progress.String())
+	}
+}
+
 func TestStop(t *testing.T) {
 	cases := []struct {
-		name string
-		list string
-		want []string
+		name    string
+		list    string
+		state   State
+		want    []string
+		wantErr string
 	}{
-		{"running", profileJSON("Running"), []string{listCmd, "minikube stop -p ois-demo"}},
-		{"stopped", profileJSON("Stopped"), []string{listCmd}},
-		{"missing", `{"invalid": [], "valid": []}`, []string{listCmd}},
+		{"running", profileJSON("Running"), StateRunning, []string{listCmd, "minikube stop -p ois-demo"}, ""},
+		{"stopped", profileJSON("Stopped"), StateStopped, []string{listCmd}, ""},
+		{"missing", `{"invalid": [], "valid": []}`, StateMissing, []string{listCmd}, ""},
+		{"invalid", `{"invalid": [{"Name": "ois-demo"}], "valid": []}`, StateInvalid, []string{listCmd}, "ois down --purge"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := (&execx.Fake{}).On(listCmd, execx.Result{Stdout: []byte(c.list)}, nil)
-			if err := newTestManager(f).Stop(context.Background()); err != nil {
-				t.Fatal(err)
+			state, err := newTestManager(f).Stop(context.Background())
+			if c.wantErr == "" && err != nil || c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)) {
+				t.Fatalf("err %v, want %q", err, c.wantErr)
+			}
+			if state != c.state {
+				t.Fatalf("state %s, want %s", state, c.state)
 			}
 			if got := f.CommandLines(); !slices.Equal(got, c.want) {
 				t.Fatalf("got %q\nwant %q", got, c.want)
@@ -156,22 +204,34 @@ func TestStop(t *testing.T) {
 	}
 }
 
+var purgeCmds = []string{
+	"minikube delete -p ois-demo",
+	"kubectl config delete-context ois-demo",
+	"kubectl config delete-cluster ois-demo",
+	"kubectl config unset users.ois-demo",
+}
+
 func TestDelete(t *testing.T) {
-	f := (&execx.Fake{}).
-		On(listCmd, execx.Result{Stdout: []byte(profileJSON("Stopped"))}, nil).
-		On("kubectl config delete-cluster", execx.Result{ExitCode: 1}, &execx.ExitError{ExitCode: 1, Stderr: "not found"})
-	if err := newTestManager(f).Delete(context.Background()); err != nil {
+	for _, list := range []string{profileJSON("Stopped"), `{"invalid": [{"Name": "ois-demo"}], "valid": []}`} {
+		f := (&execx.Fake{}).
+			On(listCmd, execx.Result{Stdout: []byte(list)}, nil).
+			On("kubectl config delete-cluster", execx.Result{ExitCode: 1}, &execx.ExitError{ExitCode: 1, Stderr: "not found"})
+		if err := newTestManager(f).Delete(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := f.CommandLines(), append([]string{listCmd}, purgeCmds...); !slices.Equal(got, want) {
+			t.Fatalf("got %q\nwant %q", got, want)
+		}
+	}
+}
+
+func TestPurgeSkipsInspect(t *testing.T) {
+	f := &execx.Fake{}
+	if err := newTestManager(f).Purge(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		listCmd,
-		"minikube delete -p ois-demo",
-		"kubectl config delete-context ois-demo",
-		"kubectl config delete-cluster ois-demo",
-		"kubectl config unset users.ois-demo",
-	}
-	if got := f.CommandLines(); !slices.Equal(got, want) {
-		t.Fatalf("got %q\nwant %q", got, want)
+	if got := f.CommandLines(); !slices.Equal(got, purgeCmds) {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -201,9 +261,9 @@ func TestDeleteFailureStopsBeforeCleanup(t *testing.T) {
 func TestDryRunInspectIsMissing(t *testing.T) {
 	var out bytes.Buffer
 	m := &Manager{Run: execx.NewDryRun(&out), Profile: "ois-demo"}
-	state, _, err := m.Inspect(context.Background())
-	if err != nil || state != StateMissing {
-		t.Fatalf("got %s, %v", state, err)
+	st, err := m.Inspect(context.Background())
+	if err != nil || st.State != StateMissing {
+		t.Fatalf("got %s, %v", st.State, err)
 	}
 	if !strings.Contains(out.String(), "+ "+listCmd) {
 		t.Fatalf("dry-run output %q", out.String())
