@@ -26,17 +26,32 @@ var upCommands = []string{
 	"minikube start -p ois-demo --driver=docker --kubernetes-version=v1.30.0 --cpus=4 --memory=7168 --disk-size=30g --keep-context --interactive=false",
 	"minikube addons enable default-storageclass -p ois-demo",
 	"minikube addons enable storage-provisioner -p ois-demo",
+	"kubectl config get-contexts -o name",
 	"kubectl --context ois-demo wait --for=condition=Ready nodes --all --timeout=300s",
+	"kubectl --context ois-demo wait --for=condition=Ready pods --all -n kube-system --field-selector=status.phase!=Succeeded --timeout=300s",
 	"kubectl --context ois-demo get storageclass -o json",
 }
 
 func profiles(status string, cpus, mem int) execx.Result {
-	return execx.Result{Stdout: []byte(`{"invalid": [], "valid": [{"Name": "ois-demo", "Status": "` + status +
-		`", "Config": {"CPUs": ` + strconv.Itoa(cpus) + `, "Memory": ` + strconv.Itoa(mem) + `}}]}`)}
+	return profilesWith(status, cpus, mem, "docker", "v1.30.0")
 }
+
+func profilesWith(status string, cpus, mem int, driver, version string) execx.Result {
+	return execx.Result{Stdout: []byte(`{"invalid": [], "valid": [{"Name": "ois-demo", "Status": "` + status +
+		`", "Config": {"CPUs": ` + strconv.Itoa(cpus) + `, "Memory": ` + strconv.Itoa(mem) +
+		`, "Driver": "` + driver + `", "KubernetesConfig": {"KubernetesVersion": "` + version + `"}}}]}`)}
+}
+
+var invalidProfile = execx.Result{Stdout: []byte(`{"invalid": [{"Name": "ois-demo"}], "valid": []}`)}
 
 // runCLI runs ois against upSpec with a fake runner and the given stdin.
 func runCLI(t *testing.T, f *execx.Fake, stdin io.Reader, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	return runCLIWith(t, f, &GlobalOptions{stdin: stdin}, args...)
+}
+
+// runCLIWith is runCLI with test-only GlobalOptions fields (stdin, terminal) preset.
+func runCLIWith(t *testing.T, f *execx.Fake, g *GlobalOptions, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	t.Setenv("OIS_MINIKUBE_DRIVER", "")
 	dir := t.TempDir()
@@ -44,7 +59,7 @@ func runCLI(t *testing.T, f *execx.Fake, stdin io.Reader, args ...string) (code 
 		t.Fatal(err)
 	}
 	var out, errBuf bytes.Buffer
-	g := &GlobalOptions{Stdout: &out, Stderr: &errBuf, stdin: stdin, runnerOverride: f}
+	g.Stdout, g.Stderr, g.runnerOverride = &out, &errBuf, f
 	root := newRootCommand(g)
 	root.SetArgs(append([]string{"-f", dir}, args...))
 	code = run(root, &errBuf)
@@ -108,11 +123,10 @@ func TestUpRecreate(t *testing.T) {
 	f := (&execx.Fake{}).
 		On(listCmd, profiles("OK", 2, 4096), nil).
 		On("kubectl --context ois-demo get storageclass", execx.Result{Stdout: []byte(oneDefaultSC)}, nil)
-	if code, _, errOut := runCLI(t, f, nil, "up", "--recreate"); code != ExitOK {
+	if code, _, errOut := runCLI(t, f, nil, "up", "--recreate", "--yes"); code != ExitOK {
 		t.Fatalf("code %d stderr %q", code, errOut)
 	}
 	want := []string{
-		listCmd,
 		listCmd,
 		"minikube delete -p ois-demo",
 		"kubectl config delete-context ois-demo",
@@ -120,6 +134,130 @@ func TestUpRecreate(t *testing.T) {
 		"kubectl config unset users.ois-demo",
 	}
 	assertCommands(t, f, append(want, upCommands[1:]...))
+}
+
+func TestUpRecreateAsksFirst(t *testing.T) {
+	f := (&execx.Fake{}).On(listCmd, profiles("OK", 2, 4096), nil)
+	code, _, errOut := runCLI(t, f, strings.NewReader("y\n"), "up", "--recreate")
+	if code != ExitError || errOut != "error: refusing to recreate without --yes when not interactive\n" {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+	assertCommands(t, f, []string{listCmd})
+
+	f = (&execx.Fake{}).On(listCmd, profiles("OK", 2, 4096), nil)
+	g := &GlobalOptions{stdin: strings.NewReader("n\n"), terminal: func(io.Reader) bool { return true }}
+	code, _, errOut = runCLIWith(t, f, g, "up", "--recreate")
+	if code != ExitError || !strings.HasPrefix(errOut, "Delete cluster ois-demo and ALL data in it, then recreate it? [y/N] ") {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+	assertCommands(t, f, []string{listCmd})
+}
+
+func TestUpRecreateOnlyOnDrift(t *testing.T) {
+	f := (&execx.Fake{}).
+		On(listCmd, profiles("OK", 4, 7168), nil).
+		On("kubectl --context ois-demo get storageclass", execx.Result{Stdout: []byte(oneDefaultSC)}, nil)
+	if code, _, errOut := runCLI(t, f, nil, "up", "--recreate"); code != ExitOK {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+	assertCommands(t, f, upCommands)
+}
+
+func TestUpDrift(t *testing.T) {
+	t.Setenv("OIS_MINIKUBE_DRIVER", "")
+	cases := []struct {
+		name string
+		res  execx.Result
+		want string
+	}{
+		{"kubernetes version", profilesWith("OK", 4, 7168, "docker", "v1.29.4"),
+			"error: cluster \"ois-demo\" has Kubernetes v1.29.4 but ois pins v1.30.0.\n" +
+				"minikube cannot change these on an existing cluster. Recreate it (this deletes all data in it):\n  ois up --recreate\n"},
+		{"driver", profilesWith("OK", 4, 7168, "hyperkit", "v1.30.0"),
+			"error: cluster \"ois-demo\" uses the hyperkit driver but ois is set to use docker (OIS_MINIKUBE_DRIVER).\n" +
+				"minikube cannot change these on an existing cluster. Recreate it (this deletes all data in it):\n  ois up --recreate\n"},
+		{"size and version", profilesWith("Stopped", 2, 4096, "docker", "v1.31.0"),
+			"error: cluster \"ois-demo\" exists with 2 CPU / 4096 MiB but ois.yaml asks for 4 CPU / 7168 MiB.\n" +
+				"cluster \"ois-demo\" has Kubernetes v1.31.0 but ois pins v1.30.0.\n" +
+				"minikube cannot change these on an existing cluster. Recreate it (this deletes all data in it):\n  ois up --recreate\n"},
+		{"unreported fields are not compared", profilesWith("OK", 4, 7168, "", ""), ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := (&execx.Fake{}).On(listCmd, c.res, nil)
+			code, _, errOut := runCLI(t, f, nil, "up")
+			if c.want == "" {
+				if code != ExitOK {
+					t.Fatalf("code %d stderr %q", code, errOut)
+				}
+				return
+			}
+			if code != ExitError || errOut != c.want {
+				t.Fatalf("code %d stderr\n%s\nwant\n%s", code, errOut, c.want)
+			}
+			assertCommands(t, f, []string{listCmd})
+		})
+	}
+}
+
+func TestUpInvalidProfile(t *testing.T) {
+	f := (&execx.Fake{}).On(listCmd, invalidProfile, nil)
+	code, _, errOut := runCLI(t, f, nil, "up")
+	if code != ExitError || errOut != "error: minikube reports cluster ois-demo as invalid; delete it with: ois down --purge\n" {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+	assertCommands(t, f, []string{listCmd})
+}
+
+func TestUpFailures(t *testing.T) {
+	boom := &execx.ExitError{Cmd: "x", ExitCode: 1, Stderr: "boom"}
+	cases := []struct {
+		name, prefix, want string
+		res                execx.Result
+	}{
+		{"start", "minikube start", "boom", execx.Result{}},
+		{"addons", "minikube addons enable storage-provisioner", "boom", execx.Result{}},
+		{"context not created", "kubectl config get-contexts", `kube context "ois-demo" not found`, execx.Result{Stdout: []byte("minikube\n")}},
+		{"nodes", "kubectl --context ois-demo wait --for=condition=Ready nodes", "boom", execx.Result{}},
+		{"system pods", "kubectl --context ois-demo wait --for=condition=Ready pods", "boom", execx.Result{}},
+		{"storage classes", "kubectl --context ois-demo get storageclass", "boom", execx.Result{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var err error
+			if c.res.Stdout == nil {
+				err = boom
+			}
+			f := (&execx.Fake{}).On(c.prefix, c.res, err)
+			code, out, errOut := runCLI(t, f, nil, "up")
+			if code != ExitError || !strings.Contains(errOut, c.want) || strings.Contains(out, "✓") {
+				t.Fatalf("code %d stdout %q stderr %q", code, out, errOut)
+			}
+			last := f.CommandLines()[len(f.Calls)-1]
+			if !strings.HasPrefix(last, c.prefix) {
+				t.Fatalf("kept going after the failure: last command %q", last)
+			}
+		})
+	}
+}
+
+func TestUpRecreateDeleteFails(t *testing.T) {
+	f := (&execx.Fake{}).
+		On(listCmd, profiles("OK", 2, 4096), nil).
+		On("minikube delete", execx.Result{}, &execx.ExitError{Cmd: "minikube delete", ExitCode: 1, Stderr: "busy"})
+	code, _, errOut := runCLI(t, f, nil, "up", "--recreate", "--yes")
+	if code != ExitError || !strings.Contains(errOut, "busy") {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+	assertCommands(t, f, []string{listCmd, "minikube delete -p ois-demo"})
+}
+
+func TestUpVerboseStreamsMinikube(t *testing.T) {
+	f := (&execx.Fake{}).On("minikube start", execx.Result{Stdout: []byte("😄 minikube progress\n")}, nil)
+	code, _, errOut := runCLI(t, f, nil, "-v", "up")
+	if code != ExitOK || !strings.Contains(errOut, "😄 minikube progress") {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
 }
 
 func TestUpTwoDefaultStorageClasses(t *testing.T) {
@@ -130,14 +268,6 @@ func TestUpTwoDefaultStorageClasses(t *testing.T) {
 	code, _, errOut := runCLI(t, f, nil, "up")
 	want := "error: cluster \"ois-demo\" must have exactly one default StorageClass, found 2: [standard, fast]\n"
 	if code != ExitError || errOut != want {
-		t.Fatalf("code %d stderr %q", code, errOut)
-	}
-}
-
-func TestUpNoDefaultStorageClass(t *testing.T) {
-	f := (&execx.Fake{}).On("kubectl --context ois-demo get storageclass", execx.Result{Stdout: []byte(`{"items": []}`)}, nil)
-	code, _, errOut := runCLI(t, f, nil, "up")
-	if code != ExitError || !strings.Contains(errOut, "found 0: []") {
 		t.Fatalf("code %d stderr %q", code, errOut)
 	}
 }
@@ -162,7 +292,7 @@ func TestDownStops(t *testing.T) {
 	if code != ExitOK || out != "✓ cluster ois-demo stopped (data kept)\n" {
 		t.Fatalf("code %d stdout %q stderr %q", code, out, errOut)
 	}
-	assertCommands(t, f, []string{listCmd, listCmd, "minikube stop -p ois-demo"})
+	assertCommands(t, f, []string{listCmd, "minikube stop -p ois-demo"})
 }
 
 func TestDownMissing(t *testing.T) {
@@ -197,17 +327,45 @@ func TestDownPurgeYes(t *testing.T) {
 }
 
 func TestDownPurgeAnswers(t *testing.T) {
-	isTerminal = func(io.Reader) bool { return true }
-	t.Cleanup(func() { isTerminal = defaultIsTerminal })
 	for answer, deleted := range map[string]bool{"y\n": true, "YES\n": true, "n\n": false, "\n": false, "": false, "yep\n": false} {
 		f := (&execx.Fake{}).On(listCmd, profiles("OK", 4, 7168), nil)
-		code, _, errOut := runCLI(t, f, strings.NewReader(answer), "down", "--purge")
+		g := &GlobalOptions{stdin: strings.NewReader(answer), terminal: func(io.Reader) bool { return true }}
+		code, _, errOut := runCLIWith(t, f, g, "down", "--purge")
 		if !strings.HasPrefix(errOut, "Delete cluster ois-demo and ALL data in it? [y/N] ") {
 			t.Errorf("%q: prompt %q", answer, errOut)
 		}
 		got := slices.Contains(f.CommandLines(), "minikube delete -p ois-demo")
 		if got != deleted || (code == ExitOK) != deleted {
 			t.Errorf("%q: code %d deleted %v, want %v", answer, code, got, deleted)
+		}
+	}
+}
+
+func TestDownPurgeInvalidProfile(t *testing.T) {
+	f := (&execx.Fake{}).On(listCmd, invalidProfile, nil)
+	code, out, errOut := runCLI(t, f, nil, "down", "--purge", "--yes")
+	if code != ExitOK || out != "✓ cluster ois-demo deleted\n" {
+		t.Fatalf("code %d stdout %q stderr %q", code, out, errOut)
+	}
+	assertCommands(t, f, []string{listCmd, "minikube delete -p ois-demo",
+		"kubectl config delete-context ois-demo", "kubectl config delete-cluster ois-demo", "kubectl config unset users.ois-demo"})
+}
+
+func TestDownInvalidProfile(t *testing.T) {
+	f := (&execx.Fake{}).On(listCmd, invalidProfile, nil)
+	code, _, errOut := runCLI(t, f, nil, "down")
+	if code != ExitError || !strings.Contains(errOut, "delete it with: ois down --purge") {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+}
+
+func TestConfirmSharesOneReader(t *testing.T) {
+	in := strings.NewReader("y\nyes\n")
+	var errBuf bytes.Buffer
+	g := &GlobalOptions{Stderr: &errBuf, terminal: func(io.Reader) bool { return true }}
+	for i := range 2 {
+		if err := confirm(g, in, "ok?", "go"); err != nil {
+			t.Fatalf("prompt %d: %v", i+1, err)
 		}
 	}
 }

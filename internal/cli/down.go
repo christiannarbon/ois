@@ -28,25 +28,30 @@ func runDown(ctx context.Context, g *GlobalOptions, purge bool) error {
 	if err != nil {
 		return err
 	}
-	state, _, err := m.Inspect(ctx)
+	if !purge {
+		state, err := m.Stop(ctx)
+		if err != nil {
+			return err
+		}
+		if state == cluster.StateMissing {
+			fmt.Fprintf(g.Stdout, "cluster %s does not exist\n", m.Profile)
+			return nil
+		}
+		fmt.Fprintf(g.Stdout, "✓ cluster %s stopped (data kept)\n", m.Profile)
+		return nil
+	}
+	st, err := m.Inspect(ctx)
 	if err != nil {
 		return err
 	}
-	if state == cluster.StateMissing {
+	if st.State == cluster.StateMissing {
 		fmt.Fprintf(g.Stdout, "cluster %s does not exist\n", m.Profile)
-		return nil
-	}
-	if !purge {
-		if err := m.Stop(ctx); err != nil {
-			return err
-		}
-		fmt.Fprintf(g.Stdout, "✓ cluster %s stopped (data kept)\n", m.Profile)
 		return nil
 	}
 	if err := confirm(g, g.input(), fmt.Sprintf("Delete cluster %s and ALL data in it?", m.Profile), "delete"); err != nil {
 		return err
 	}
-	if err := m.Delete(ctx); err != nil {
+	if err := m.Purge(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintf(g.Stdout, "✓ cluster %s deleted\n", m.Profile)
