@@ -214,7 +214,7 @@ func TestFake(t *testing.T) {
 	if err := f.Stream(ctx, Cmd{Name: "kubectl", Args: []string{"get", "ns"}}, &out, nil); err != nil || out.String() != "specific" {
 		t.Errorf("stream: %q, %v", out.String(), err)
 	}
-	f.Run(ctx, Cmd{Name: "kubectl", Args: []string{"create", "secret", "--from-literal=k=v1"}, Secrets: []string{"v1"}})
+	f.Run(ctx, Cmd{Name: "kubectl", Args: []string{"get", "pods", "--token=v1"}, Secrets: []string{"v1"}})
 
 	want := []string{
 		"kubectl get ns storage",
@@ -222,7 +222,7 @@ func TestFake(t *testing.T) {
 		"helm list",
 		"minikube status",
 		"kubectl get ns",
-		"kubectl create secret --from-literal=k=v1",
+		"kubectl get pods --token=v1",
 	}
 	got := f.CommandLines()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
